@@ -1,0 +1,59 @@
+<!DOCTYPE html PUBLIC" -//W3C//DTD XHTML 1.0 Transitional//EN""http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html>
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=1.0,
+        maximum-scale=1.0, user-scalable=no" />
+  <title>页面行情(K线图)</title>
+  <!-- 加载资源 -->
+  <link rel="stylesheet" href="static/css/main.css" />
+  <link rel="stylesheet" href="https://at.alicdn.com/t/font_1456981_05itjuh4fz0g.css" />
+</head>
+
+<body>
+  <script src="./datas/datas.js"></script>
+  <script src="./static/js/jquery.min.js"></script>
+  <script src="./gotopchart.js"></script>
+  <div id="kline" style="width: 900px;height:400px;"></div>
+  <script>
+    function KLineChart(div) {
+      this.chartDiv = div
+      this.chart = GoTopChart.Init(div)
+      this.option = {
+        symbol: 'BTC/USDT',
+        isOnline: false,
+        kline: {
+          Period: 1
+        },
+        indicator: {
+
+        }
+      }
+      this.Create = function () {
+        var self = this
+        $(window).resize(() => {
+          self.OnSize()
+          self.chart.SetOption(self.option)
+        })
+        this.OnSize()
+        this.chart.SetOption(this.option)
+      }
+      this.OnSize = function () {
+        var height = $(window).height();
+        var width = $(window).width();
+        this.chartDiv.style.top = 'px';
+        this.chartDiv.style.left = 'px';
+        this.chartDiv.style.width = width + 'px';
+        this.chartDiv.style.height = height + 'px';
+        this.chart.OnSize();
+      }
+    }
+    $(function () {
+      var kLineChart = new KLineChart(document.getElementById('kline'))
+      kLineChart.Create()
+    })
+  </script>
+</body>
+
+</html>
