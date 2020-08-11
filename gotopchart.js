@@ -6,15 +6,22 @@ function GoTopChart (divElement) {
   this.DivElement.style.display = "flex"
 
   this.RightElement = document.createElement('div')
+  this.ChartContainerElement = document.createElement('div')
+  this.ChartContainerElement.className = 'chart-container'
   this.TopToolContainer = new TopToolContainer()
   this.TopToolElement = this.TopToolContainer.Create(0)
   this.LeftToolContainer = new LeftToolContainer()
   this.LeftToolElement = this.LeftToolContainer.Create(0)
+  this.XAxis = new XAxis()
+  this.XAxisElement
+
+  var pixelTatio = GetDevicePixelRatio();
+  this.CrossCursor = new CrossCursor()
 
   this.DivElement.appendChild(this.LeftToolElement)
   this.DivElement.appendChild(this.RightElement)
   this.RightElement.appendChild(this.TopToolElement)
-
+  this.RightElement.appendChild(this.ChartContainerElement)
 
   this.WindowFrameList = []
   this.WindowFrameSort = []
@@ -45,36 +52,46 @@ function GoTopChart (divElement) {
     this.LeftToolElement.style.height = this.Height + 'px'
     // 画布窗口大小
     this.WindowFrameWidth = this.Width - this.LeftToolContainer.Width - g_ThemeResource.BorderWidth[0]
-    this.WindowFrameHeight = this.Height - this.TopToolContainer.Height - g_ThemeResource.BorderWidth[0]
+    this.WindowFrameHeight = this.Height - this.TopToolContainer.Height - g_ThemeResource.BorderWidth[0] - this.XAxis.Height
+
     this.SplitDatas()
   }
   this.SetOption = function (option) {
     var kLineWindow = new WindowFrame()
     var div = kLineWindow.CreateFrame('kline', 'kline', this.WindowFrameWidth, this.WindowFrameHeight, this.YAxisWidth, 1)
-    if (!this.RightElement.hasChildNodes("div")) {
-      this.RightElement.appendChild(div)
-    }
+    this.ChartContainerElement.appendChild(div)
     this.WindowFrameList.push(kLineWindow)
+    this.CrossCursor.Create(this.WindowFrameList)
     this.Draw()
   }
   /**
    * @description 剪切数据
    */
   this.SplitDatas = function () {
-    var count = (this.Width - this.YAxisWidth) / (this.CurScaleWidth + this.CurScaleMargin)
-    this.Datas = chartDatas.Datas.slice(0, count)
+    var count = (this.Width - this.LeftToolContainer.Width - this.YAxisWidth) / (this.CurScaleWidth + this.CurScaleMargin)
+    this.Datas = chartDatas.Datas.slice(0, Math.ceil(count))
   }
   this.Draw = function () {
     // 循环绘制窗口框架
+    this.XAxisElement = this.XAxis.Create(this.WindowFrameWidth)
+    this.RightElement.appendChild(this.XAxisElement)
+    this.XAxis.Draw()
     this.WindowFrameList.forEach((item, index, list) => {
       if (item.Name == 'kline') {
         var yAxis = new YAxis()
         yAxis.Create(item, this.Datas)
+        item.YAxis = yAxis
+        var kline = new KLine(this.Datas)
+        kline.Create(item)
       }
     })
   }
   this.Resize = function () {
 
+  }
+  let self = this
+  this.ChartContainerElement.onmousemove = function (e) {
+    self.CrossCursor.Move((e.offsetX) * pixelTatio, (e.offsetY) * pixelTatio)
   }
 }
 
@@ -105,10 +122,8 @@ function WindowFrame () {
   this.MainCanvas
   this.YAxis
   this.YAxisCanvas
-  this.XAxisCanvas
   this.OptMainCanvas
   this.OptYAxisCanvas
-  this.OptXAxisCanvas
   this.TitleTool
   this.OptTool
   this.SortIndex
@@ -179,7 +194,7 @@ function WindowFrame () {
     this.WindowFrameDiv.appendChild(this.OptYAxisCanvasElement)
 
     this.MainCanvas = this.MainCanvasElement.getContext('2d')
-    this.OptMainCanvas = this.MainCanvasElement.getContext('2d')
+    this.OptMainCanvas = this.OptMainCanvasElement.getContext('2d')
     this.YAxisCanvas = this.YAxisCanvasElement.getContext('2d')
     this.OptYAxisCanvas = this.OptYAxisCanvasElement.getContext('2d')
 
@@ -225,25 +240,33 @@ function WindowFrame () {
   this.CanvasMove = function () {
 
   }
+
+
 }
 
-function KLine () {
-  this.Datas
+function KLine (datas) {
+  this.Datas = datas
   this.ScaleList
-  this.CurScaleWidth
-  this.CurScaleMargin
+  this.CurScaleWidth = 18
+  this.CurScaleMargin = 6
   this.WindowFrame
   this.NumOfPeriodOneScreen
   this.UnitPricePx
   this.WindowFrame
   this.Canvas
+  this.OptCanvas
   this.UpColor = g_ThemeResource.UpColor
   this.DownColor = g_ThemeResource.DownColor
-  this.Create = function (windowFrame, unitPricePx) {
+  this.MaxHigh
+  this.MinLow
+  this.Create = function (windowFrame) {
     this.WindowFrame = windowFrame
-    this.Canvas = this.WindowFrame.Canvas
-    this.UnitPricePx = unitPricePx
+    this.Canvas = this.WindowFrame.MainCanvas
+    this.OptCanvas = this.WindowFrame.OptMainCanvas
+    this.UnitPricePx = this.WindowFrame.YAxis.UnitPricePx
     this.Draw()
+    this.DrawCloseLine()
+    this.DrawMaxHighAndMinLow()
   }
   this.Update = function (windowFrame) {
     this.WindowFrame = windowFrame
@@ -264,34 +287,34 @@ function KLine () {
       this.Canvas.fillStyle = this.UpColor
       this.Canvas.strokeStyle = this.UpColor
       if (this.CurScaleWidth > 4) {
-        startY = valueHeight - (close - this.WindowFrame.YAxis.Min) * this.WindowFrame.YAxis.UnitPricePx + this.WindowFrame.Padding.top
-        endY = valueHeight - (open - this.WindowFrame.YAxis.Min) * this.WindowFrame.YAxis.UnitPricePx + this.WindowFrame.Padding.top
+        startY = valueHeight - (close - this.WindowFrame.YAxis.Min) * this.UnitPricePx + this.WindowFrame.Padding.top
+        endY = valueHeight - (open - this.WindowFrame.YAxis.Min) * this.UnitPricePx + this.WindowFrame.Padding.top
       }
     } else if (open > close) {
       this.Canvas.fillStyle = this.DownColor
       this.Canvas.strokeStyle = this.DownColor
       if (this.CurScaleWidth > 4) {
-        startY = valueHeight - (open - this.WindowFrame.YAxis.Min) * this.WindowFrame.YAxis.UnitPricePx + this.WindowFrame.Padding.top
-        endY = valueHeight - (close - this.WindowFrame.YAxis.Min) * this.WindowFrame.YAxis.UnitPricePx + this.WindowFrame.Padding.top
+        startY = valueHeight - (open - this.WindowFrame.YAxis.Min) * this.UnitPricePx + this.WindowFrame.Padding.top
+        endY = valueHeight - (close - this.WindowFrame.YAxis.Min) * this.UnitPricePx + this.WindowFrame.Padding.top
       }
     } else {
       this.Canvas.fillStyle = g_ThemeResource.FontColor
       this.Canvas.strokeStyle = g_ThemeResource.FontColor
-      startY, endY = valueHeight - (open - this.WindowFrame.YAxis.Min) * this.WindowFrame.YAxis.UnitPricePx + this.WindowFrame.Padding.top
+      endY = valueHeight - (open - this.WindowFrame.YAxis.Min) * this.UnitPricePx + this.WindowFrame.Padding.top
+      startY = endY
     }
     startX = this.WindowFrame.Padding.left + (this.CurScaleWidth + this.CurScaleMargin) * i
     endX = startX + this.CurScaleWidth
     var h = endY - startY
-    h < 1 && (h = 2)
-    h == 0 && (h = 1)
-    highpx = valueHeight - (high - this.WindowFrame.YAxis.Min) * this.WindowFrame.YAxis.UnitPricePx + this.WindowFrame.Padding.top
-    lowpx = valueHeight - (low - this.WindowFrame.YAxis.Min) * this.WindowFrame.YAxis.UnitPricePx + this.WindowFrame.Padding.top
+    h < 1 && (h = 1)
+    highpx = valueHeight - (high - this.WindowFrame.YAxis.Min) * this.UnitPricePx + this.WindowFrame.Padding.top
+    lowpx = valueHeight - (low - this.WindowFrame.YAxis.Min) * this.UnitPricePx + this.WindowFrame.Padding.top
+    this.Canvas.lineWidth = 1
     if (this.CurScaleWidth > 4) {
       this.Canvas.fillRect(ToFixedRect(startX), ToFixedRect(startY), ToFixedRect(endX - startX), ToFixedRect(h))
     }
-    this.Canvas.lineWidth = 1
-    this.Canvas.moveTo(ToFixedPoint(startX + Basic.kLineWidth / 2), ToFixedPoint(highpx))
-    this.Canvas.lineTo(ToFixedPoint(startX + Basic.kLineWidth / 2), ToFixedPoint(lowpx))
+    this.Canvas.moveTo(ToFixedPoint(startX + this.CurScaleWidth / 2), ToFixedPoint(highpx))
+    this.Canvas.lineTo(ToFixedPoint(startX + this.CurScaleWidth / 2), ToFixedPoint(lowpx))
     this.Canvas.stroke()
     this.Canvas.closePath()
   }
@@ -299,15 +322,74 @@ function KLine () {
    * @description 绘制收盘价线
    */
   this.DrawCloseLine = function () {
-
+    const closePrice = parseFloat(this.Datas[this.Datas.length - 1].close)
+    const openPrice = parseFloat(this.Datas[this.Datas.length - 1].open)
+    const valueHeight = this.WindowFrame.Height - this.WindowFrame.Padding.top - this.WindowFrame.Padding.bottom
+    const y = valueHeight - (closePrice - this.WindowFrame.YAxis.Min) * this.UnitPricePx + this.WindowFrame.Padding.top
+    if (closePrice < openPrice) {
+      this.Canvas.strokeStyle = this.DownColor
+    } else {
+      this.Canvas.strokeStyle = this.UpColor
+    }
+    // 绘制收盘线
+    this.Canvas.lineWidth = 1.5
+    this.Canvas.setLineDash([1.5, 1.5])
+    this.Canvas.moveTo(0, y)
+    this.Canvas.lineTo(this.WindowFrame.Width - this.WindowFrame.YAxisWidth, y)
+    this.Canvas.stroke()
+    this.Canvas.closePath()
+    // 绘制Y轴上的标识
+    this.WindowFrame.OptYAxisCanvas.fillStyle = this.Canvas.strokeStyle
+    this.WindowFrame.OptYAxisCanvas.fillRect(ToFixedRect(0), ToFixedRect(y - 10), ToFixedRect(this.WindowFrame.YAxisWidth), ToFixedRect(20))
+    this.WindowFrame.OptYAxisCanvas.font = '12px san-serif'
+    this.WindowFrame.OptYAxisCanvas.fillStyle = g_ThemeResource.FontLightColor
+    this.WindowFrame.OptYAxisCanvas.fillText(closePrice, 10, y + 5)
+    this.WindowFrame.OptYAxisCanvas.lineWidth = 1
+    this.WindowFrame.OptYAxisCanvas.strokeStyle = g_ThemeResource.FontLightColor
+    this.WindowFrame.OptYAxisCanvas.moveTo(0, ToFixedPoint(y))
+    this.WindowFrame.OptYAxisCanvas.lineTo(5, ToFixedPoint(y))
+    this.WindowFrame.OptYAxisCanvas.stroke()
   }
   /**
-   * @description 计算一屏中K线的最高价和最低价
+   * @description 绘制一屏中K线的最高点和最低点
    */
-  this.CalculationOneSreenHighLow = function () {
+  this.DrawMaxHighAndMinLow = function () {
+    const valueHeight = this.WindowFrame.Height - this.WindowFrame.Padding.top - this.WindowFrame.Padding.bottom
+    let max = 0
+    let maxIndex = 0
+    let min = 0
+    let minIndex = 0
+    this.Datas.forEach((item, index, list) => {
+      if (max < item.high) {
+        max = item.high
+        maxIndex = index
+      }
+      if (min == 0 || min > item.low) {
+        min = item.low
+        minIndex = index
+      }
+    })
+    const maxX = this.WindowFrame.Padding.left + (this.CurScaleWidth + this.CurScaleMargin) * maxIndex
+    const maxY = valueHeight - (max - this.WindowFrame.YAxis.Min) * this.UnitPricePx + this.WindowFrame.Padding.top
+    const maxTW = this.OptCanvas.measureText(max).width
 
+    const minX = this.WindowFrame.Padding.left + (this.CurScaleWidth + this.CurScaleMargin) * minIndex
+    const minY = valueHeight - (min - this.WindowFrame.YAxis.Min) * this.UnitPricePx + this.WindowFrame.Padding.top
+    const minTW = this.OptCanvas.measureText(min).width
+
+    this.Canvas.fillStyle = g_ThemeResource.FontLightColor
+    this.Canvas.font = '12px san-serif'
+    if (maxIndex < (this.Datas.length - 1) / 2) {
+      this.Canvas.fillText(max, maxX, maxY)
+    } else {
+      this.Canvas.fillText(max, maxX - maxTW, maxY)
+    }
+    if (minIndex < (this.Datas.length - 1) / 2) {
+      this.Canvas.fillText(min, minX, minY + 10)
+    } else {
+      this.Canvas.fillText(min, minX - minTW, minY + 10)
+    }
   }
-
 }
 
 function YAxis () {
@@ -473,7 +555,6 @@ function YAxis () {
       console.log(label)
       label = label.add(this.UnitValue)
     }
-    console.log(this.LabelList)
   }
   /**
    * @description 开始绘制
@@ -482,34 +563,79 @@ function YAxis () {
     this.Canvas.beginPath()
     this.Canvas.strokeStyle = g_ThemeResource.FontColor
     this.Canvas.lineWidth = 1
-    this.Canvas.moveTo(0, this.WindowFrame.Padding.top)
-    this.Canvas.lineTo(0, this.WindowFrame.Height - this.WindowFrame.Padding.bottom)
+    this.Canvas.moveTo(0, 0)
+    this.Canvas.lineTo(0, this.WindowFrame.Height)
     this.Canvas.fillStyle = g_ThemeResource.FontColor
     this.Canvas.font = '12px sans-serif'
     this.LabelList.forEach((item, index, list) => {
       this.Canvas.moveTo(0, ToFixedPoint(item.y))
       this.Canvas.lineTo(5, ToFixedPoint(item.y))
       this.Canvas.fillText(item.label, 10, item.y + 5)
+      this.WindowFrame.MainCanvas.moveTo(0, ToFixedPoint(item.y))
+      this.WindowFrame.MainCanvas.lineTo(this.WindowFrame.Width - this.WindowFrame.YAxisWidth, ToFixedPoint(item.y))
       console.log('draw', 10, item.y + 5)
     })
     this.Canvas.stroke()
     this.Canvas.closePath()
 
+    // 网格线绘制
+    this.WindowFrame.MainCanvas.beginPath()
+    this.WindowFrame.MainCanvas.strokeStyle = g_ThemeResource.BorderColor
+    this.WindowFrame.MainCanvas.lineWidth = 0.5
+    this.LabelList.forEach((item, index, list) => {
+      this.WindowFrame.MainCanvas.moveTo(0, ToFixedPoint(item.y))
+      this.WindowFrame.MainCanvas.lineTo(this.WindowFrame.Width - this.WindowFrame.YAxisWidth, ToFixedPoint(item.y))
+    })
+    this.WindowFrame.MainCanvas.stroke()
+    this.WindowFrame.MainCanvas.closePath()
   }
 }
 
 function XAxis () {
   this.Datas
+  this.Height = 28
+  this.Width
   this.Min
   this.Max
   this.LabelList
   this.PxList
   this.UnitValue = 0
   this.UnitSpacing = 0
-  this.WindowFrame
+  this.XAxisCanvas
+  this.OptXAxisCanvas
+  this.XAxisElement
+  this.OptXAxisElement
+  this.XAxisDiv
 
-  this.Create = function () {
+  this.Create = function (width) {
+    var pixelTatio = GetDevicePixelRatio();
+    this.Width = width
+    this.XAxisDiv = document.createElement('div')
+    this.XAxisDiv.style.position = 'relative'
+    this.XAxisDiv.style.height = this.Height + 'px'
+    this.XAxisDiv.style.width = this.Width + 'px'
+    this.XAxisDiv.style.backgroundColor = g_ThemeResource.BgColor
 
+    this.XAxisElement = document.createElement('canvas')
+    this.OptXAxisElement = document.createElement('canvas')
+    this.XAxisElement.className = 'jschart-drawing'
+    this.OptXAxisElement.className = 'jschart-opt-drawing'
+
+    this.XAxisElement.width = this.Width * pixelTatio
+    this.XAxisElement.height = this.Height * pixelTatio
+    this.XAxisElement.style.width = this.Width + 'px'
+    this.XAxisElement.style.height = this.Height + 'px'
+    this.XAxisCanvas = this.XAxisElement.getContext('2d')
+
+    this.OptXAxisElement.width = this.Width * pixelTatio
+    this.OptXAxisElement.height = this.Height * pixelTatio
+    this.OptXAxisElement.style.width = this.Width + 'px'
+    this.OptXAxisElement.style.height = this.Height + 'px'
+    this.OptXAxisCanvas = this.OptXAxisElement.getContext('2d')
+
+    this.XAxisDiv.appendChild(this.XAxisElement)
+    this.XAxisDiv.appendChild(this.OptXAxisElement)
+    return this.XAxisDiv
   }
   /**
    * @description 计算单位值
@@ -539,7 +665,14 @@ function XAxis () {
    * @description 开始绘制
    */
   this.Draw = function () {
-
+    console.log('xaxis draw')
+    this.XAxisCanvas.beginPath()
+    this.XAxisCanvas.strokeStyle = g_ThemeResource.FontColor
+    this.XAxisCanvas.lineWidth = 1
+    this.XAxisCanvas.moveTo(0, 0)
+    this.XAxisCanvas.lineTo(this.Width, 0)
+    this.XAxisCanvas.stroke()
+    this.XAxisCanvas.closePath()
   }
   /**
    * @description 数据更新，重新绘制
@@ -577,8 +710,23 @@ function CrossCursor () {
   this.Create = function (windowFrameList) {
     this.WindowFrameList = windowFrameList
   }
-  this.Draw = function () {
-
+  this.Move = function (x, y) {
+    let kn = Math.ceil(x / (CurScaleMargin + CurScaleWidth))
+    let cursorX = (CurScaleWidth + CurScaleMargin) * kn - CurScaleWidth / 2 - CurScaleMargin
+    console.log(kn, cursorX)
+    this.WindowFrameList.forEach((item, index, list) => {
+      item.OptMainCanvas.beginPath()
+      item.OptMainCanvas.clearRect(0, 0, item.Width - item.YAxisWidth, item.Height)
+      item.OptMainCanvas.strokeStyle = g_ThemeResource.FontColor
+      item.OptMainCanvas.lineWidth = 1
+      item.OptMainCanvas.setLineDash([5, 5])
+      item.OptMainCanvas.moveTo(ToFixedPoint(cursorX), ToFixedPoint(0))
+      item.OptMainCanvas.lineTo(ToFixedPoint(cursorX), ToFixedPoint(item.Height))
+      item.OptMainCanvas.moveTo(ToFixedPoint(0), ToFixedPoint(y))
+      item.OptMainCanvas.lineTo(ToFixedPoint(item.Width - item.YAxisWidth), ToFixedPoint(y))
+      item.OptMainCanvas.stroke()
+      item.OptMainCanvas.closePath()
+    })
   }
   this.Clear = function () {
 
@@ -746,6 +894,7 @@ function ThemeSettingsDialog () {
   this.BgColor = "#1f1f36"
   this.BorderColor = "#3c4564"
   this.FontColor = "#bfcbd9"
+  this.FontLightColor = "#ffffff"
   this.UpColor = "#26a69a"
   this.DownColor = "#ef5350"
   this.BorderWidth = [3, 1]
@@ -952,6 +1101,8 @@ var CONDITION_PERIOD =
   KLINE_60_MINUTE_ID: 8
 };
 
+var CurScaleMargin = 6
+var CurScaleWidth = 18
 var ZOOM_SEED =
   [
     [48, 10], [44, 10],
