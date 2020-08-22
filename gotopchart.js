@@ -1,97 +1,229 @@
-'use strict'
 
 
 function GoTopChart (divElement) {
   this.DivElement = divElement
-  this.DivElement.style.display = "flex"
+  this.DivElement.className = "main-div"
 
   this.RightElement = document.createElement('div')
-  this.ChartContainerElement = document.createElement('div')
-  this.ChartContainerElement.className = 'chart-container'
   this.TopToolContainer = new TopToolContainer()
-  this.TopToolElement = this.TopToolContainer.Create(0)
   this.LeftToolContainer = new LeftToolContainer()
-  this.LeftToolElement = this.LeftToolContainer.Create(0)
-  this.XAxis = new XAxis()
-  this.XAxisElement
+  this.WindowFrame = new WindowFrame()
 
-  var pixelTatio = GetDevicePixelRatio();
-  this.CrossCursor = new CrossCursor()
+  this.TopToolElement = this.TopToolContainer.Create(0)
+  this.LeftToolElement = this.LeftToolContainer.Create(0)
+  this.ChartElement = this.WindowFrame.onCreateFrame()
 
   this.DivElement.appendChild(this.LeftToolElement)
   this.DivElement.appendChild(this.RightElement)
   this.RightElement.appendChild(this.TopToolElement)
-  this.RightElement.appendChild(this.ChartContainerElement)
+  this.RightElement.appendChild(this.ChartElement)
 
-  this.WindowFrameList = []
-  this.WindowFrameSort = []
-  this.Options
-  this.Width
-  this.Height
-  this.WindowFrameWidth
-  this.WindowFrameHeight
-  this.Datas
+  this.KLineDatasFix = new KLineDatasFix()
+  this.Cursor = new CrossCursor()
 
-  this.CurScaleWidth = 18
-  this.CurScaleMargin = 6
-  this.YAxisWidth = 60
+  this.TitleToolList = []
+  this.DrawToolList = []
+  this.Options = {}
+  this.Drag = false
+  this.Status = 1 // 0光标模式、1数据拖动、2画图工具
+  let drag = {
+    click: {
+
+    },
+    lastMove: {
+
+    }
+  }
+
+  let self = this
 
   /**
-   * @description 获取宽高
+   * @description 注册左侧工具栏 画图工具点击事件
    */
+  this.LeftToolContainer.RegisterClickEvent(function (id) {
+    if (self.Status != 2) {
+      self.Status = 2
+    } else {
+      self.Status = 1
+      return
+    }
+    console.log(self.Status, id)
+    switch (id) {
+      case "line-tool":
+        var lineEle = new LineElement()
+        self.DrawToolList.push(lineEle)
+        console.log('click line-tool')
+        break;
+      case "rect-tool":
+        break;
+    }
+  })
+
   this.OnSize = function () {
-    var height = parseInt(this.DivElement.style.height.replace("px", ""));
-    var width = parseInt(this.DivElement.style.width.replace("px", ""))
     // chart 整体大小
-    this.Height = height
-    this.Width = width
+    WindowSizeOptions.height = parseInt(this.DivElement.style.height.replace("px", ""));
+    WindowSizeOptions.width = parseInt(this.DivElement.style.width.replace("px", ""))
 
-    this.RightElement.style.width = this.Width - this.LeftToolContainer.Width - g_ThemeResource.BorderWidth[0] + 'px'
-    this.RightElement.style.height = this.Height + 'px'
+    this.RightElement.style.width = WindowSizeOptions.width - WindowSizeOptions.leftToolContainerWidth - g_ThemeResource.BorderWidth[0] + 'px'
+    this.RightElement.style.height = WindowSizeOptions.height + 'px'
     this.TopToolElement.style.width = this.RightElement.style.width
-    this.LeftToolElement.style.height = this.Height + 'px'
-    // 画布窗口大小
-    this.WindowFrameWidth = this.Width - this.LeftToolContainer.Width - g_ThemeResource.BorderWidth[0]
-    this.WindowFrameHeight = this.Height - this.TopToolContainer.Height - g_ThemeResource.BorderWidth[0] - this.XAxis.Height
+    this.LeftToolElement.style.height = WindowSizeOptions.height + 'px'
 
-    this.SplitDatas()
+    WindowSizeOptions.chartContainerWidth = WindowSizeOptions.width - WindowSizeOptions.leftToolContainerWidth - g_ThemeResource.BorderWidth[0]
+    WindowSizeOptions.chartContainerHeight = WindowSizeOptions.height - WindowSizeOptions.topToolContainerHeight - g_ThemeResource.BorderWidth[0]
+
+    this.WindowFrame.onSetSize(WindowSizeOptions.chartContainerWidth, WindowSizeOptions.chartContainerHeight)
+
+    KNum = Math.ceil((WindowSizeOptions.chartContainerWidth - WindowSizeOptions.yAxisContainerWidth) / (ZOOM_SEED[CurScaleIndex][0] + ZOOM_SEED[CurScaleIndex][1]))
+    this.KLineDatasFix.SplitDatas()
   }
+
   this.SetOption = function (option) {
-    var kLineWindow = new WindowFrame()
-    var div = kLineWindow.CreateFrame('kline', 'kline', this.WindowFrameWidth, this.WindowFrameHeight, this.YAxisWidth, 1)
-    this.ChartContainerElement.appendChild(div)
-    this.WindowFrameList.push(kLineWindow)
-    this.CrossCursor.Create(this.WindowFrameList)
+    if (document.getElementById('kLine-title-tool')) {
+      this.ChartElement.removeChild(document.getElementById('kLine-title-tool'))
+    }
+    for (let i in this.Options['indicators']) {
+      if (document.getElementById(i + '-title-tool')) {
+        this.ChartElement.removeChild(document.getElementById(i + '-title-tool'))
+      }
+    }
+    if (this.WindowFrame.Options) this.WindowFrame.onClearCanvas() // 已经进行绘制，需要线清除画布内容
+    this.Options = option
+    this.WindowFrame.onSetOptions(option)
+
+    this.WindowFrame.onSetFrameList(WindowSizeOptions.chartContainerWidth, WindowSizeOptions.chartContainerHeight)
     this.Draw()
   }
-  /**
-   * @description 剪切数据
-   */
-  this.SplitDatas = function () {
-    var count = (this.Width - this.LeftToolContainer.Width - this.YAxisWidth) / (this.CurScaleWidth + this.CurScaleMargin)
-    this.Datas = chartDatas.Datas.slice(0, Math.ceil(count))
-  }
-  this.Draw = function () {
-    // 循环绘制窗口框架
-    this.XAxisElement = this.XAxis.Create(this.WindowFrameWidth)
-    this.RightElement.appendChild(this.XAxisElement)
-    this.XAxis.Draw()
-    this.WindowFrameList.forEach((item, index, list) => {
-      if (item.Name == 'kline') {
-        var yAxis = new YAxis()
-        yAxis.Create(item, this.Datas)
-        item.YAxis = yAxis
-        var kline = new KLine(this.Datas)
-        kline.Create(item)
-      }
-    })
-  }
-  this.Resize = function () {
 
+  this.Draw = function () {
+    for (let key in this.WindowFrame.FrameList) {
+      switch (key) {
+        case 'xAxis':
+          var xAxis = new XAxis()
+          xAxis.Create(this.WindowFrame.Canvas, this.WindowFrame.OptCanvas, this.WindowFrame.FrameList[key], KLineDatas)
+          break;
+        case 'kLine':
+          var yAxis = new YAxis()
+          yAxis.Create(this.WindowFrame.Canvas, this.WindowFrame.OptCanvas, KLineDatas, this.WindowFrame.FrameList[key]['yAxis'])
+          this.WindowFrame.FrameList[key]['yAxis']['Min'] = yAxis.Min
+          this.WindowFrame.FrameList[key]['yAxis']['Max'] = yAxis.Max
+          this.WindowFrame.FrameList[key]['yAxis']['unitPricePx'] = yAxis.UnitPricePx
+          var kLine = new KLine()
+          kLine.Create(this.WindowFrame.Canvas, this.WindowFrame.OptCanvas, this.WindowFrame.FrameList, KLineDatas)
+          var titleTool = new TitleToolContainer()
+          var titleToolElement = titleTool.Create(this.WindowFrame.FrameList[key])
+          this.ChartElement.appendChild(titleToolElement)
+          titleTool.CreateValueBox()
+          var curValue = {
+            'open': KLineDatas[KLineDatas.length - 1]['open'],
+            'high': KLineDatas[KLineDatas.length - 1]['high'],
+            'low': KLineDatas[KLineDatas.length - 1]['low'],
+            'close': KLineDatas[KLineDatas.length - 1]['close'],
+          }
+          curValue['rate'] = KLineDatas[KLineDatas.length - 1]['close'] - KLineDatas[KLineDatas.length - 1]['open']
+          curValue['rate'] < 0 ? curValue['rate'] = curValue['rate'].toFixed(2) + '(-' + (Math.abs(curValue['rate']) / curValue['open'] * 100).toFixed(2) + '%)' : curValue['rate'] = curValue['rate'].toFixed(2) + '(+' + (Math.abs(curValue['rate']) / curValue['open'] * 100).toFixed(2) + '%)'
+          titleTool.SetValue(curValue)
+          this.TitleToolList.push(titleTool)
+          break;
+        case 'indicators':
+          break;
+      }
+    }
+    this.Cursor.Create(this.WindowFrame.Canvas, this.WindowFrame.OptCanvas, this.WindowFrame.FrameList)
+    for (let i in this.DrawToolList) {
+      this.DrawToolList[i].Canvas && this.DrawToolList[i].Draw(null)
+    }
   }
-  let self = this
-  this.ChartContainerElement.onmousemove = function (e) {
-    self.CrossCursor.Move((e.offsetX) * pixelTatio, (e.offsetY) * pixelTatio)
+
+  this.ChartElement.onmousemove = function (e) {
+    if ((e.offsetY) * pixelTatio < WindowSizeOptions.chartContainerHeight - WindowSizeOptions.xAxisContainerHeight && (e.offsetX) * pixelTatio < WindowSizeOptions.chartContainerWidth - WindowSizeOptions.yAxisContainerWidth) {
+      self.WindowFrame.OptCanvas.clearRect(0, 0, WindowSizeOptions.chartContainerWidth, WindowSizeOptions.chartContainerHeight)
+      for (let i in self.DrawToolList) {
+        self.DrawToolList[i].Canvas && self.DrawToolList[i].Draw(null)
+      }
+      if (!self.Drag) {
+        var kn = self.Cursor.Move((e.offsetX) * pixelTatio, (e.offsetY) * pixelTatio)
+        for (let i in self.TitleToolList) {
+          if (self.TitleToolList[i].Option.name == 'kLine') {
+            var curValue = {
+              'open': KLineDatas[kn]['open'],
+              'high': KLineDatas[kn]['high'],
+              'low': KLineDatas[kn]['low'],
+              'close': KLineDatas[kn]['close'],
+            }
+            curValue['rate'] = KLineDatas[kn]['close'] - KLineDatas[kn]['open']
+            curValue['rate'] < 0 ? curValue['rate'] = curValue['rate'].toFixed(2) + '(-' + (Math.abs(curValue['rate']) / curValue['open'] * 100).toFixed(2) + '%)' : curValue['rate'] = curValue['rate'].toFixed(2) + '(+' + (Math.abs(curValue['rate']) / curValue['open'] * 100).toFixed(2) + '%)'
+            self.TitleToolList[i].SetValue(curValue)
+          }
+        }
+      }
+    }
+  }
+
+  this.ChartElement.onmousewheel = function (e) {
+    if (self.KLineDatasFix.ScaleKLine(e.wheelDelta)) {
+      self.KLineDatasFix.SplitDatas()
+      self.SetOption(self.Options)
+    }
+  }
+
+  this.ChartElement.onmousedown = function (e) {
+    self.Drag = true
+    drag.click.X = e.offsetX
+    drag.click.Y = e.offsetY
+    drag.lastMove.X = e.offsetX
+    drag.lastMove.Y = e.offsetY
+    document.onmousemove = function (e) {
+      let moveStep = Math.abs(drag.lastMove.X - e.offsetX)
+      if (self.Drag) {
+        if (moveStep < 5) return
+        // 数据拖动
+        if (self.Status == 1) {
+          let isLeft = true
+          if (drag.lastMove.X < e.offsetX) isLeft = false
+          if (self.KLineDatasFix.MoveDatas(moveStep, isLeft)) {
+            self.KLineDatasFix.SplitDatas()
+            self.SetOption(self.Options)
+            drag.lastMove.X = e.offsetX
+            drag.lastMove.Y = e.offsetY
+          }
+          return
+        }
+        // 画图工具
+        if (self.Status == 2) {
+          self.WindowFrame.OptCanvas.clearRect(0, 0, WindowSizeOptions.chartContainerWidth, WindowSizeOptions.chartContainerHeight)
+          var option
+          for (let j in self.WindowFrame.FrameList) {
+            if (self.WindowFrame.FrameList[j]['position'] && drag.click.Y > self.WindowFrame.FrameList[j].position.top && drag.click.Y < self.WindowFrame.FrameList[j].position.top + self.WindowFrame.FrameList[j].height) {
+              option = self.WindowFrame.FrameList[j]
+            }
+          }
+          if (!option) {
+            return
+          }
+          drag.lastMove.X = e.offsetX
+          drag.lastMove.Y = e.offsetY
+          // 画图
+          for (let i in self.DrawToolList) {
+            if (i != self.DrawToolList.length - 1) {
+              self.DrawToolList[i].Draw(null)
+            } else {
+              !self.DrawToolList[self.DrawToolList.length - 1].Option && self.DrawToolList[self.DrawToolList.length - 1].Create(self.WindowFrame.OptCanvas, option)
+              self.DrawToolList[self.DrawToolList.length - 1].Draw(drag)
+            }
+          }
+        }
+      }
+    }
+  }
+
+  this.ChartElement.onmouseup = function (e) {
+    if (self.Status == 2) {
+      // 松开鼠标即画图结束
+      self.DrawToolList[self.DrawToolList.length - 1].IsFinished = true
+    }
+    self.Drag = false
+    self.Status = 1
   }
 }
 
@@ -102,176 +234,186 @@ GoTopChart.Init = function (divElement) {
 }
 
 function WindowFrame () {
+  this.Options
+  this.FrameList = {
+    'xAxis': {
+      'width': 0,
+      'height': 0,
+      'position': {
+        'left': 0,
+        'top': 0
+      },
+    },
+    'yAxis': {
+      'width': 0,
+      'height': 0,
+      'position': {
+        'left': 0,
+        'top': 0
+      },
+    },
+    'kLine': {
+      'name': 'kLine',
+      'width': 0,
+      'height': 0,
+      'position': {
+        'left': 0,
+        'top': 0
+      },
+      'indicator': {},
+      'yAxis': {
+        'width': 0,
+        'height': 0,
+        'position': {
+          'left': 0,
+          'top': 0
+        },
+        'isRight': true
+      }
+    },
+  } // 存放所有窗口框架的map
+  this.Canvas
+  this.OptCanvas
+  this.CanvasElement
+  this.OptCanvasElement
+  this.ChartElement
+
   this.Width
   this.Height
-  // 数据宽度
-  this.DataWidth
-  // 数据距离
-  this.DistanceWidth
-  this.YAxisWidth
-  this.Top
-  this.Left
-  this.Padding = {
-    top: 20,
-    bottom: 20,
-    left: 0,
-    right: 0
-  }
-  this.Name
-  this.Type
-  this.MainCanvas
-  this.YAxis
-  this.YAxisCanvas
-  this.OptMainCanvas
-  this.OptYAxisCanvas
-  this.TitleTool
-  this.OptTool
-  this.SortIndex
-  this.WindowFrameDiv
-  this.MainCanvasElement
-  this.OptMainCanvasElement
-  this.YAxisCanvasElement
-  this.OptYAxisCanvasElement
 
-  /**
-   * @description 创建窗口框架
-   * @param {*} name 
-   * @param {*} type 
-   * @param {*} width 
-   * @param {*} height 
-   * @param {*} yAxisWidth 
-   * @param {*} sortIndex 
-   */
-  this.CreateFrame = function (name, type, width, height, yAxisWidth, sortIndex) {
+
+  this.onCreateFrame = function () {
+    this.ChartElement = document.createElement('div')
+    this.ChartElement.className = "window-frame"
+    this.ChartElement.style.backgroundColor = g_ThemeResource.BgColor
+    this.CanvasElement = document.createElement('canvas')
+    this.CanvasElement.className = "jschart-drawing"
+    this.OptCanvasElement = document.createElement('canvas')
+    this.OptCanvasElement.className = "jschart-opt-drawing"
+    this.Canvas = this.CanvasElement.getContext('2d')
+    this.OptCanvas = this.OptCanvasElement.getContext('2d')
+    this.ChartElement.appendChild(this.CanvasElement)
+    this.ChartElement.appendChild(this.OptCanvasElement)
+    return this.ChartElement
+  }
+
+  this.onSetOptions = function (options) {
+    this.Options = options
+    if (this.Options['kLine']) {
+      this.FrameList['kLine']['symbol'] = options.symbol
+      // this.FrameList['kLine'] = this.Options['kLine']
+    } else {
+      throw "options kLine is undefined"
+    }
+    if (this.Options['indicators']) this.FrameList['indicators'] = this.Options['indicators']
+  }
+
+  this.onSetFrameList = function (width, height) {
+    const cw = (width - WindowSizeOptions.yAxisContainerWidth) * pixelTatio
+    const ch = (height - WindowSizeOptions.xAxisContainerHeight) * pixelTatio
+    // xAxis
+    this.FrameList['xAxis']['width'] = cw
+    this.FrameList['xAxis']['height'] = WindowSizeOptions.xAxisContainerHeight
+    this.FrameList['xAxis']['position']['left'] = 0
+    this.FrameList['xAxis']['position']['top'] = ch
+
+    let icNum = 0
+    for (let i in this.FrameList['indicators']) {
+      icNum++
+    }
+    const sch = ch / (icNum + WindowSizeOptions.chartScale)
+    // kLine
+    this.FrameList['kLine']['width'] = cw
+    this.FrameList['kLine']['height'] = WindowSizeOptions.chartScale * sch
+    this.FrameList['kLine']['position']['left'] = 0
+    this.FrameList['kLine']['position']['top'] = 0
+
+    this.FrameList['kLine']['yAxis']['width'] = WindowSizeOptions.yAxisContainerWidth
+    this.FrameList['kLine']['yAxis']['height'] = WindowSizeOptions.chartScale * sch
+    this.FrameList['kLine']['yAxis']['position']['left'] = cw
+    this.FrameList['kLine']['yAxis']['position']['top'] = 0
+
+    // indicators
+    if (this.FrameList.indicators.size > 0) {
+      let ict = this.FrameList['kLine']['height']
+      this.FrameList.indicators.forEach((value, key) => {
+        this.FrameList.indicators[key].width = cw
+        this.FrameList.indicators[key].height = ich
+        this.FrameList.indicators[key]['position']['top'] = ict
+        this.FrameList.indicators[key]['position']['left'] = 0
+
+        this.FrameList['kLine']['yAxis']['width'] = WindowSizeOptions.yAxisContainerWidth
+        this.FrameList['kLine']['yAxis']['height'] = ich
+        this.FrameList['kLine']['yAxis']['position']['left'] = cw
+        this.FrameList['kLine']['yAxis']['position']['top'] = ict
+
+        ict += ich
+      })
+    }
+
+  }
+
+  this.onSetSize = function (width, height) {
     this.Width = width
     this.Height = height
-    this.Name = name
-    this.Type = type
-    this.YAxisWidth = yAxisWidth
-    this.SortIndex = sortIndex
+    this.ChartElement.style.height = height + 'px'
+    this.ChartElement.style.width = width + 'px'
+    if (this.CanvasElement && this.OptCanvasElement) {
+      this.CanvasElement.style.width = width + 'px'
+      this.CanvasElement.style.height = height + 'px'
+      this.CanvasElement.width = width * pixelTatio
+      this.CanvasElement.height = height * pixelTatio
 
-    this.WindowFrameDiv = document.createElement("div")
-    this.MainCanvasElement = document.createElement("canvas")
-    this.OptMainCanvasElement = document.createElement("canvas")
-    this.YAxisCanvasElement = document.createElement("canvas")
-    this.OptYAxisCanvasElement = document.createElement("canvas")
-
-    this.WindowFrameDiv.id = Guid()
-    this.MainCanvasElement.id = Guid()
-    this.YAxisCanvasElement.id = Guid()
-    this.OptMainCanvasElement.id = Guid()
-    this.OptYAxisCanvasElement.id = Guid()
-
-    this.WindowFrameDiv.style.backgroundColor = g_ThemeResource.BgColor
-    this.WindowFrameDiv.className = "window-frame"
-    this.MainCanvasElement.className = "jschart-drawing"
-    this.OptMainCanvasElement.className = "jschart-drawing-opt"
-    this.YAxisCanvasElement.className = "y-axis"
-    this.OptYAxisCanvasElement.className = "y-axis-opt"
-
-    this.calculationSize(height, width)
-
-    // 事件绑定
-    this.OptMainCanvasElement.onmousemove = function (e) {
-
+      this.OptCanvasElement.style.width = width + 'px'
+      this.OptCanvasElement.style.height = height + 'px'
+      this.OptCanvasElement.width = width * pixelTatio
+      this.OptCanvasElement.height = height * pixelTatio
+    } else {
+      throw "CanvasElement or OptCanvasElement is undefined"
     }
-    this.OptMainCanvasElement.onmousewheel = function (e) {
-
-    }
-    this.OptMainCanvasElement.ondblclick = function (e) {
-
-    }
-    this.OptMainCanvasElement.onmousedown = function (e) {
-
-    }
-    this.OptMainCanvasElement.onmouseup = function (e) {
-
-    }
-
-    this.WindowFrameDiv.appendChild(this.MainCanvasElement)
-    this.WindowFrameDiv.appendChild(this.OptMainCanvasElement)
-    this.WindowFrameDiv.appendChild(this.YAxisCanvasElement)
-    this.WindowFrameDiv.appendChild(this.OptYAxisCanvasElement)
-
-    this.MainCanvas = this.MainCanvasElement.getContext('2d')
-    this.OptMainCanvas = this.OptMainCanvasElement.getContext('2d')
-    this.YAxisCanvas = this.YAxisCanvasElement.getContext('2d')
-    this.OptYAxisCanvas = this.OptYAxisCanvasElement.getContext('2d')
-
-    return this.WindowFrameDiv
   }
 
-  /**
-   * @description 为canvas的 height 和 width 赋值
-   * @param {高度} height 
-   * @param {宽度} width 
-   */
-  this.calculationSize = function (height, width) {
-    //获取设备的分辨率，物理像素与css像素的比值
-    var pixelTatio = GetDevicePixelRatio();
-    this.WindowFrameDiv.style.height = height + 'px'
-    this.WindowFrameDiv.style.width = width + 'px'
-    this.MainCanvasElement.width = (width - (this.YAxisWidth)) * pixelTatio
-    this.OptMainCanvasElement.width = (width - (this.YAxisWidth)) * pixelTatio
-    this.MainCanvasElement.height = height * pixelTatio
-    this.OptMainCanvasElement.height = height * pixelTatio
-    this.MainCanvasElement.style.width = (width - (this.YAxisWidth)) + 'px'
-    this.OptMainCanvasElement.style.width = (width - (this.YAxisWidth)) + 'px'
-    this.MainCanvasElement.style.height = height + 'px'
-    this.OptMainCanvasElement.style.height = height + 'px'
-    this.YAxisCanvasElement.width = (this.YAxisWidth) * pixelTatio
-    this.OptYAxisCanvasElement.width = (this.YAxisWidth) * pixelTatio
-    this.YAxisCanvasElement.height = height * pixelTatio
-    this.OptYAxisCanvasElement.height = height * pixelTatio
-    this.YAxisCanvasElement.style.width = (this.YAxisWidth) + 'px'
-    this.OptYAxisCanvasElement.style.width = (this.YAxisWidth) + 'px'
-    this.YAxisCanvasElement.style.height = height + 'px'
-    this.OptYAxisCanvasElement.style.height = height + 'px'
-    this.MainCanvasElement.style.left = 0 + 'px'
-    this.MainCanvasElement.style.top = 0 + 'px'
-    this.OptMainCanvasElement.style.left = 0 + 'px'
-    this.OptMainCanvasElement.style.top = 0 + 'px'
-    this.YAxisCanvasElement.style.left = this.MainCanvasElement.style.width
-    this.OptYAxisCanvasElement.style.left = this.MainCanvasElement.style.width
-    this.YAxisCanvasElement.style.top = 0 + 'px'
-    this.OptYAxisCanvasElement.style.top = 0 + 'px'
+  this.onClearCanvas = function () {
+    if (this.Canvas && this.OptCanvas) {
+      this.Canvas.clearRect(0, 0, WindowSizeOptions.chartContainerWidth, WindowSizeOptions.chartContainerHeight)
+      this.OptCanvas.clearRect(0, 0, WindowSizeOptions.chartContainerWidth, WindowSizeOptions.chartContainerHeight)
+    } else {
+      throw "Canvas or OptCanvas is undefined"
+    }
   }
-
-  this.CanvasMove = function () {
-
-  }
-
 
 }
 
-function KLine (datas) {
-  this.Datas = datas
-  this.ScaleList
-  this.CurScaleWidth = 18
-  this.CurScaleMargin = 6
-  this.WindowFrame
-  this.NumOfPeriodOneScreen
+function KLine () {
   this.UnitPricePx
-  this.WindowFrame
   this.Canvas
   this.OptCanvas
   this.UpColor = g_ThemeResource.UpColor
   this.DownColor = g_ThemeResource.DownColor
-  this.MaxHigh
-  this.MinLow
-  this.Create = function (windowFrame) {
-    this.WindowFrame = windowFrame
-    this.Canvas = this.WindowFrame.MainCanvas
-    this.OptCanvas = this.WindowFrame.OptMainCanvas
-    this.UnitPricePx = this.WindowFrame.YAxis.UnitPricePx
+  this.FrameList
+  this.Option
+  this.ValueHeight
+  this.Create = function (canvas, optCanvas, options, datas) {
+    this.Datas = datas
+    this.Canvas = canvas
+    this.OptCanvas = optCanvas
+    this.FrameList = options
+    this.Option = this.FrameList['kLine']
+    this.UnitPricePx = this.Option['yAxis']['unitPricePx']
+    this.ValueHeight = this.Option.height - WindowSizeOptions.padding.top - WindowSizeOptions.padding.bottom
     this.Draw()
     this.DrawCloseLine()
     this.DrawMaxHighAndMinLow()
   }
-  this.Update = function (windowFrame) {
-    this.WindowFrame = windowFrame
-    this.Canvas = this.WindowFrame.Canvas
+  this.Update = function (datas, options) {
+    this.Datas = datas
+    this.FrameList = options
+    this.Option = this.FrameList['kLine']
+    this.UnitPricePx = this.Optiont['yAxis']['unitPricePx']
+    this.ValueHeight = this.Option.height - WindowSizeOptions.padding.top - WindowSizeOptions.padding.bottom
     this.Draw()
+    this.DrawCloseLine()
+    this.DrawMaxHighAndMinLow()
   }
   this.Draw = function () {
     this.Datas.forEach((item, index, list) => {
@@ -280,41 +422,41 @@ function KLine (datas) {
   }
   this.DrawKLines = function (i, open, close, high, low) {
     var startX, startY, endX, endY, lowpx, highpx
-    const valueHeight = this.WindowFrame.Height - this.WindowFrame.Padding.top - this.WindowFrame.Padding.bottom
     this.Canvas.beginPath()
     // datawith<=4 只绘制竖线
     if (open < close) {
       this.Canvas.fillStyle = this.UpColor
       this.Canvas.strokeStyle = this.UpColor
-      if (this.CurScaleWidth > 4) {
-        startY = valueHeight - (close - this.WindowFrame.YAxis.Min) * this.UnitPricePx + this.WindowFrame.Padding.top
-        endY = valueHeight - (open - this.WindowFrame.YAxis.Min) * this.UnitPricePx + this.WindowFrame.Padding.top
+      if (ZOOM_SEED[CurScaleIndex][0] > 2) {
+        startY = this.Option.position.top + this.ValueHeight - (close - this.Option['yAxis'].Min) * this.UnitPricePx + WindowSizeOptions.padding.top
+        endY = this.ValueHeight - (open - this.Option['yAxis'].Min) * this.UnitPricePx + WindowSizeOptions.padding.top
       }
     } else if (open > close) {
       this.Canvas.fillStyle = this.DownColor
       this.Canvas.strokeStyle = this.DownColor
-      if (this.CurScaleWidth > 4) {
-        startY = valueHeight - (open - this.WindowFrame.YAxis.Min) * this.UnitPricePx + this.WindowFrame.Padding.top
-        endY = valueHeight - (close - this.WindowFrame.YAxis.Min) * this.UnitPricePx + this.WindowFrame.Padding.top
+      if (ZOOM_SEED[CurScaleIndex][0] > 2) {
+        startY = this.Option.position.top + this.ValueHeight - (open - this.Option['yAxis'].Min) * this.UnitPricePx + WindowSizeOptions.padding.top
+        endY = this.ValueHeight - (close - this.Option['yAxis'].Min) * this.UnitPricePx + WindowSizeOptions.padding.top
       }
     } else {
       this.Canvas.fillStyle = g_ThemeResource.FontColor
       this.Canvas.strokeStyle = g_ThemeResource.FontColor
-      endY = valueHeight - (open - this.WindowFrame.YAxis.Min) * this.UnitPricePx + this.WindowFrame.Padding.top
+      endY = this.Option.position.top + this.ValueHeight - (open - this.Option['yAxis'].Min) * this.UnitPricePx + WindowSizeOptions.padding.top
       startY = endY
     }
-    startX = this.WindowFrame.Padding.left + (this.CurScaleWidth + this.CurScaleMargin) * i
-    endX = startX + this.CurScaleWidth
-    var h = endY - startY
+    startX = this.Option.position.left + WindowSizeOptions.padding.left + (ZOOM_SEED[CurScaleIndex][0] + ZOOM_SEED[CurScaleIndex][1]) * i
+    endX = startX + ZOOM_SEED[CurScaleIndex][0]
+    let h = endY - startY
     h < 1 && (h = 1)
-    highpx = valueHeight - (high - this.WindowFrame.YAxis.Min) * this.UnitPricePx + this.WindowFrame.Padding.top
-    lowpx = valueHeight - (low - this.WindowFrame.YAxis.Min) * this.UnitPricePx + this.WindowFrame.Padding.top
+    highpx = this.Option.position.top + this.ValueHeight - (high - this.Option['yAxis'].Min) * this.UnitPricePx + WindowSizeOptions.padding.top
+    lowpx = this.Option.position.top + this.ValueHeight - (low - this.Option['yAxis'].Min) * this.UnitPricePx + WindowSizeOptions.padding.top
     this.Canvas.lineWidth = 1
-    if (this.CurScaleWidth > 4) {
+    if (ZOOM_SEED[CurScaleIndex][0] > 2) {
       this.Canvas.fillRect(ToFixedRect(startX), ToFixedRect(startY), ToFixedRect(endX - startX), ToFixedRect(h))
     }
-    this.Canvas.moveTo(ToFixedPoint(startX + this.CurScaleWidth / 2), ToFixedPoint(highpx))
-    this.Canvas.lineTo(ToFixedPoint(startX + this.CurScaleWidth / 2), ToFixedPoint(lowpx))
+    this.Canvas.setLineDash([0, 0])
+    this.Canvas.moveTo(ToFixedPoint(startX + ZOOM_SEED[CurScaleIndex][0] / 2), ToFixedPoint(highpx))
+    this.Canvas.lineTo(ToFixedPoint(startX + ZOOM_SEED[CurScaleIndex][0] / 2), ToFixedPoint(lowpx))
     this.Canvas.stroke()
     this.Canvas.closePath()
   }
@@ -324,42 +466,45 @@ function KLine (datas) {
   this.DrawCloseLine = function () {
     const closePrice = parseFloat(this.Datas[this.Datas.length - 1].close)
     const openPrice = parseFloat(this.Datas[this.Datas.length - 1].open)
-    const valueHeight = this.WindowFrame.Height - this.WindowFrame.Padding.top - this.WindowFrame.Padding.bottom
-    const y = valueHeight - (closePrice - this.WindowFrame.YAxis.Min) * this.UnitPricePx + this.WindowFrame.Padding.top
+    const y = this.ValueHeight - (closePrice - this.Option['yAxis'].Min) * this.UnitPricePx + WindowSizeOptions.padding.top
+    this.Canvas.beginPath()
     if (closePrice < openPrice) {
       this.Canvas.strokeStyle = this.DownColor
     } else {
       this.Canvas.strokeStyle = this.UpColor
     }
-    // 绘制收盘线
+    //绘制收盘线
     this.Canvas.lineWidth = 1.5
     this.Canvas.setLineDash([1.5, 1.5])
     this.Canvas.moveTo(0, y)
-    this.Canvas.lineTo(this.WindowFrame.Width - this.WindowFrame.YAxisWidth, y)
+    this.Canvas.lineTo(this.Option.width, y)
     this.Canvas.stroke()
     this.Canvas.closePath()
+
     // 绘制Y轴上的标识
-    this.WindowFrame.OptYAxisCanvas.fillStyle = this.Canvas.strokeStyle
-    this.WindowFrame.OptYAxisCanvas.fillRect(ToFixedRect(0), ToFixedRect(y - 10), ToFixedRect(this.WindowFrame.YAxisWidth), ToFixedRect(20))
-    this.WindowFrame.OptYAxisCanvas.font = '12px san-serif'
-    this.WindowFrame.OptYAxisCanvas.fillStyle = g_ThemeResource.FontLightColor
-    this.WindowFrame.OptYAxisCanvas.fillText(closePrice, 10, y + 5)
-    this.WindowFrame.OptYAxisCanvas.lineWidth = 1
-    this.WindowFrame.OptYAxisCanvas.strokeStyle = g_ThemeResource.FontLightColor
-    this.WindowFrame.OptYAxisCanvas.moveTo(0, ToFixedPoint(y))
-    this.WindowFrame.OptYAxisCanvas.lineTo(5, ToFixedPoint(y))
-    this.WindowFrame.OptYAxisCanvas.stroke()
+    this.Canvas.beginPath()
+    this.Canvas.fillStyle = this.Canvas.strokeStyle
+    this.Canvas.fillRect(ToFixedRect(this.Option.width), ToFixedRect(y - 10), ToFixedRect(WindowSizeOptions.yAxisContainerWidth), ToFixedRect(20))
+    this.Canvas.font = '12px san-serif'
+    this.Canvas.fillStyle = g_ThemeResource.FontLightColor
+    this.Canvas.fillText(closePrice, this.Option.width + 10, y + 5)
+    this.Canvas.lineWidth = 1
+    this.Canvas.setLineDash([0, 0])
+    this.Canvas.strokeStyle = g_ThemeResource.FontLightColor
+    this.Canvas.moveTo(ToFixedPoint(this.Option.width), ToFixedPoint(y))
+    this.Canvas.lineTo(ToFixedPoint(this.Option.width) + 5, ToFixedPoint(y))
+    this.Canvas.stroke()
+    this.Canvas.closePath()
   }
   /**
    * @description 绘制一屏中K线的最高点和最低点
    */
   this.DrawMaxHighAndMinLow = function () {
-    const valueHeight = this.WindowFrame.Height - this.WindowFrame.Padding.top - this.WindowFrame.Padding.bottom
     let max = 0
     let maxIndex = 0
     let min = 0
     let minIndex = 0
-    this.Datas.forEach((item, index, list) => {
+    this.Datas.forEach((item, index) => {
       if (max < item.high) {
         max = item.high
         maxIndex = index
@@ -369,12 +514,12 @@ function KLine (datas) {
         minIndex = index
       }
     })
-    const maxX = this.WindowFrame.Padding.left + (this.CurScaleWidth + this.CurScaleMargin) * maxIndex
-    const maxY = valueHeight - (max - this.WindowFrame.YAxis.Min) * this.UnitPricePx + this.WindowFrame.Padding.top
+    const maxX = WindowSizeOptions.padding.left + (ZOOM_SEED[CurScaleIndex][0] + ZOOM_SEED[CurScaleIndex][1]) * maxIndex
+    const maxY = this.ValueHeight - (max - this.Option['yAxis'].Min) * this.UnitPricePx + WindowSizeOptions.padding.top
     const maxTW = this.OptCanvas.measureText(max).width
 
-    const minX = this.WindowFrame.Padding.left + (this.CurScaleWidth + this.CurScaleMargin) * minIndex
-    const minY = valueHeight - (min - this.WindowFrame.YAxis.Min) * this.UnitPricePx + this.WindowFrame.Padding.top
+    const minX = WindowSizeOptions.padding.left + (ZOOM_SEED[CurScaleIndex][0] + ZOOM_SEED[CurScaleIndex][1]) * minIndex
+    const minY = this.ValueHeight - (min - this.Option['yAxis'].Min) * this.UnitPricePx + WindowSizeOptions.padding.top
     const minTW = this.OptCanvas.measureText(min).width
 
     this.Canvas.fillStyle = g_ThemeResource.FontLightColor
@@ -403,12 +548,18 @@ function YAxis () {
   this.UnitPricePx = 0
   this.Symmetrical = false //是否要求正负刻度对称。默认为false，需要时请设置为true
   this.Deviation = false // 是否允许误差，即实际分出的段数不等于splitNumber
-  this.WindowFrame
+
   this.Canvas
-  this.Create = function (windowFrame, datas) {
+  this.OptCanvas
+  this.FrameList
+  this.Option
+  this.ValueHeight
+  this.Create = function (canvas, optCanvas, datas, option) {
     this.Datas = datas
-    this.WindowFrame = windowFrame
-    this.Canvas = this.WindowFrame.YAxisCanvas
+    this.Canvas = canvas
+    this.OptCanvas = optCanvas
+    this.Option = option
+    this.ValueHeight = this.Option.height - WindowSizeOptions.padding.top - WindowSizeOptions.padding.bottom
     this.CalculationMinMaxValue()
     this.CalculationUnitValue()
     this.CalculationUnitSpacing()
@@ -425,10 +576,10 @@ function YAxis () {
    * @description 计算最大值和最小值
    */
   this.CalculationMinMaxValue = function () {
-    if (this.WindowFrame.Type == 'kline') {
+    if (this.Datas instanceof Array) {
       this.Min = Math.min.apply(Math, this.Datas.map(function (o) { return parseFloat(o.low) }))
       this.Max = Math.max.apply(Math, this.Datas.map(function (o) { return parseFloat(o.high) }))
-    } else if (this.WindowFrame.Type == 'indicator') {
+    } else {
       let minArray, maxArray = []
       for (let i in this.Datas) {
         let minValue, maxValue
@@ -440,7 +591,6 @@ function YAxis () {
       this.Min = Math.min.apply(Math, minArray)
       this.Max = Math.max.apply(Math, maxArray)
     }
-    console.log(this.Min, this.Max)
   }
   /**
  * @description 计算单位刻度值
@@ -455,7 +605,7 @@ function YAxis () {
     var deviation = false;//是否允许误差，即实际分出的段数不等于splitNumber
     var magic = [10, 15, 20, 25, 30, 40, 50, 60, 70, 80, 90, 100];//魔数数组经过扩充，放宽魔数限制避免出现取不到魔数的情况。
     var max, min, splitNumber;
-    splitNumber = 6;//理想的刻度间隔段数，即希望刻度区间有多少段
+    splitNumber = 16;//理想的刻度间隔段数，即希望刻度区间有多少段
     max = this.Max;//调用js已有函数计算出最大值
     min = this.Min;//计算出最小值
     //2.计算出初始间隔tempGap和缩放比例multiple
@@ -491,7 +641,6 @@ function YAxis () {
     countDegree(estep);
     if (deviation) {//如果允许误差，即实际分段数可以不等于splitNumber，则直接结束
       var interval = fixedNum(estep);
-      console.log(maxi, mini, interval);
       return;
     }
     //5.当正负刻度不对称且0刻度不在刻度线上时，重新取魔数进行计算//确保其中一条分割线刚好在0刻度上。
@@ -528,31 +677,25 @@ function YAxis () {
     this.Max = fixedNum(maxi);
     this.Min = fixedNum(mini);
     this.UnitValue = fixedNum((maxi - mini) / splitNumber);
-    console.log(this.Max, this.Min, this.UnitValue);
   }
   /**
    * @description 计算单位间距
    */
   this.CalculationUnitSpacing = function () {
-    const valueHeight = this.WindowFrame.Height - this.WindowFrame.Padding.top - this.WindowFrame.Padding.bottom
-    this.UnitPricePx = valueHeight / (this.Max - this.Min)
+    this.UnitPricePx = this.ValueHeight / (this.Max - this.Min)
     this.UnitSpacing = this.UnitValue * this.UnitPricePx
-    console.log('CalculationUnitSpacing', this.UnitPricePx, this.UnitValue)
   }
   /**
    * @description 计算Label数组
    */
   this.CalculationLabelList = function () {
-    const valueHeight = this.WindowFrame.Height - this.WindowFrame.Padding.top - this.WindowFrame.Padding.bottom
     let label = this.Min
-    console.log('height', valueHeight, this.UnitPricePx)
     while (label <= this.Max) {
       let item = {
         label: label,
-        y: (this.Max - label) * this.UnitPricePx + this.WindowFrame.Padding.top
+        y: (this.Max - label) * this.UnitPricePx + WindowSizeOptions.padding.top
       }
       this.LabelList.push(item)
-      console.log(label)
       label = label.add(this.UnitValue)
     }
   }
@@ -563,37 +706,35 @@ function YAxis () {
     this.Canvas.beginPath()
     this.Canvas.strokeStyle = g_ThemeResource.FontColor
     this.Canvas.lineWidth = 1
-    this.Canvas.moveTo(0, 0)
-    this.Canvas.lineTo(0, this.WindowFrame.Height)
+    this.Canvas.setLineDash([0, 0])
+    this.Canvas.moveTo(this.Option.position.left, 0)
+    this.Canvas.lineTo(this.Option.position.left, this.Option.position.top + this.Option.height)
     this.Canvas.fillStyle = g_ThemeResource.FontColor
     this.Canvas.font = '12px sans-serif'
     this.LabelList.forEach((item, index, list) => {
-      this.Canvas.moveTo(0, ToFixedPoint(item.y))
-      this.Canvas.lineTo(5, ToFixedPoint(item.y))
-      this.Canvas.fillText(item.label, 10, item.y + 5)
-      this.WindowFrame.MainCanvas.moveTo(0, ToFixedPoint(item.y))
-      this.WindowFrame.MainCanvas.lineTo(this.WindowFrame.Width - this.WindowFrame.YAxisWidth, ToFixedPoint(item.y))
-      console.log('draw', 10, item.y + 5)
+      this.Canvas.moveTo(this.Option.position.left, ToFixedPoint(item.y))
+      this.Canvas.lineTo(this.Option.position.left + 5, ToFixedPoint(item.y))
+      this.Canvas.fillText(item.label, this.Option.position.left + 10, item.y + 5)
     })
     this.Canvas.stroke()
     this.Canvas.closePath()
 
     // 网格线绘制
-    this.WindowFrame.MainCanvas.beginPath()
-    this.WindowFrame.MainCanvas.strokeStyle = g_ThemeResource.BorderColor
-    this.WindowFrame.MainCanvas.lineWidth = 0.5
+    this.Canvas.beginPath()
+    this.Canvas.strokeStyle = g_ThemeResource.BorderColor
+    this.Canvas.lineWidth = 0.5
     this.LabelList.forEach((item, index, list) => {
-      this.WindowFrame.MainCanvas.moveTo(0, ToFixedPoint(item.y))
-      this.WindowFrame.MainCanvas.lineTo(this.WindowFrame.Width - this.WindowFrame.YAxisWidth, ToFixedPoint(item.y))
+      this.Canvas.moveTo(0, ToFixedPoint(item.y))
+      this.Canvas.lineTo(WindowSizeOptions.chartContainerWidth - WindowSizeOptions.yAxisContainerWidth, ToFixedPoint(item.y))
     })
-    this.WindowFrame.MainCanvas.stroke()
-    this.WindowFrame.MainCanvas.closePath()
+    this.Canvas.stroke()
+    this.Canvas.closePath()
   }
 }
 
 function XAxis () {
   this.Datas
-  this.Height = 28
+  this.Height
   this.Width
   this.Min
   this.Max
@@ -606,36 +747,17 @@ function XAxis () {
   this.XAxisElement
   this.OptXAxisElement
   this.XAxisDiv
+  this.Option
 
-  this.Create = function (width) {
-    var pixelTatio = GetDevicePixelRatio();
-    this.Width = width
-    this.XAxisDiv = document.createElement('div')
-    this.XAxisDiv.style.position = 'relative'
-    this.XAxisDiv.style.height = this.Height + 'px'
-    this.XAxisDiv.style.width = this.Width + 'px'
-    this.XAxisDiv.style.backgroundColor = g_ThemeResource.BgColor
+  this.Create = function (canvas, optCanvas, option, datas) {
+    this.XAxisCanvas = canvas
+    this.OptXAxisCanvas = optCanvas
+    this.Option = option
+    this.Datas = datas
 
-    this.XAxisElement = document.createElement('canvas')
-    this.OptXAxisElement = document.createElement('canvas')
-    this.XAxisElement.className = 'jschart-drawing'
-    this.OptXAxisElement.className = 'jschart-opt-drawing'
-
-    this.XAxisElement.width = this.Width * pixelTatio
-    this.XAxisElement.height = this.Height * pixelTatio
-    this.XAxisElement.style.width = this.Width + 'px'
-    this.XAxisElement.style.height = this.Height + 'px'
-    this.XAxisCanvas = this.XAxisElement.getContext('2d')
-
-    this.OptXAxisElement.width = this.Width * pixelTatio
-    this.OptXAxisElement.height = this.Height * pixelTatio
-    this.OptXAxisElement.style.width = this.Width + 'px'
-    this.OptXAxisElement.style.height = this.Height + 'px'
-    this.OptXAxisCanvas = this.OptXAxisElement.getContext('2d')
-
-    this.XAxisDiv.appendChild(this.XAxisElement)
-    this.XAxisDiv.appendChild(this.OptXAxisElement)
-    return this.XAxisDiv
+    this.Width = WindowSizeOptions.chartContainerWidth
+    this.Height = WindowSizeOptions.xAxisContainerHeight
+    this.Draw()
   }
   /**
    * @description 计算单位值
@@ -665,12 +787,12 @@ function XAxis () {
    * @description 开始绘制
    */
   this.Draw = function () {
-    console.log('xaxis draw')
     this.XAxisCanvas.beginPath()
     this.XAxisCanvas.strokeStyle = g_ThemeResource.FontColor
     this.XAxisCanvas.lineWidth = 1
-    this.XAxisCanvas.moveTo(0, 0)
-    this.XAxisCanvas.lineTo(this.Width, 0)
+    this.XAxisCanvas.setLineDash([0, 0])
+    this.XAxisCanvas.moveTo(0, this.Option.position.top)
+    this.XAxisCanvas.lineTo(this.Option.width, this.Option.position.top)
     this.XAxisCanvas.stroke()
     this.XAxisCanvas.closePath()
   }
@@ -683,125 +805,224 @@ function XAxis () {
 
 }
 
-function Indicator () {
-  this.Name
-  // 指标运算数据
-  this.IndicatorData
-  this.Option
-  this.UnitValueInPx
-  this.WindowFrame
-
-  this.Create = function (name, indicatorData, option, unitValueInPx, windowFrame) {
-
-  }
-  this.Draw = function () {
-
-  }
-  this.Update = function (indicatorData, option, unitValueInPx) {
-
-  }
-}
-
 // 十字光标
 function CrossCursor () {
   this.X
   this.Y
-  this.WindowFrameList
-  this.Create = function (windowFrameList) {
-    this.WindowFrameList = windowFrameList
+  this.Canvas
+  this.OptCanvas
+  this.FrameList
+  let self = this
+  this.Create = function (canvas, optCanvas, options) {
+    this.Canvas = canvas
+    this.OptCanvas = optCanvas
+    this.FrameList = options
   }
   this.Move = function (x, y) {
-    let kn = Math.ceil(x / (CurScaleMargin + CurScaleWidth))
-    let cursorX = (CurScaleWidth + CurScaleMargin) * kn - CurScaleWidth / 2 - CurScaleMargin
-    console.log(kn, cursorX)
-    this.WindowFrameList.forEach((item, index, list) => {
-      item.OptMainCanvas.beginPath()
-      item.OptMainCanvas.clearRect(0, 0, item.Width - item.YAxisWidth, item.Height)
-      item.OptMainCanvas.strokeStyle = g_ThemeResource.FontColor
-      item.OptMainCanvas.lineWidth = 1
-      item.OptMainCanvas.setLineDash([5, 5])
-      item.OptMainCanvas.moveTo(ToFixedPoint(cursorX), ToFixedPoint(0))
-      item.OptMainCanvas.lineTo(ToFixedPoint(cursorX), ToFixedPoint(item.Height))
-      item.OptMainCanvas.moveTo(ToFixedPoint(0), ToFixedPoint(y))
-      item.OptMainCanvas.lineTo(ToFixedPoint(item.Width - item.YAxisWidth), ToFixedPoint(y))
-      item.OptMainCanvas.stroke()
-      item.OptMainCanvas.closePath()
-    })
+    let kn = Math.ceil(x / (ZOOM_SEED[CurScaleIndex][1] + ZOOM_SEED[CurScaleIndex][0]))
+    let cursorX = (ZOOM_SEED[CurScaleIndex][0] + ZOOM_SEED[CurScaleIndex][1]) * kn - ZOOM_SEED[CurScaleIndex][0] / 2 - ZOOM_SEED[CurScaleIndex][1]
+    this.OptCanvas.beginPath()
+    this.OptCanvas.strokeStyle = g_ThemeResource.FontColor
+    this.OptCanvas.lineWidth = 1
+    this.OptCanvas.setLineDash([5, 5])
+    this.OptCanvas.moveTo(ToFixedPoint(cursorX), ToFixedPoint(0))
+    this.OptCanvas.lineTo(ToFixedPoint(cursorX), ToFixedPoint(WindowSizeOptions.chartContainerHeight - WindowSizeOptions.xAxisContainerHeight))
+    this.OptCanvas.moveTo(ToFixedPoint(0), ToFixedPoint(y))
+    this.OptCanvas.lineTo(ToFixedPoint(WindowSizeOptions.chartContainerWidth - WindowSizeOptions.yAxisContainerWidth), ToFixedPoint(y))
+    this.OptCanvas.stroke()
+    this.OptCanvas.closePath()
+    this.DrawLabel(kn, cursorX, y)
+    return kn
+  }
+  this.DrawLabel = function (index, x, y) {
+
+    let itemData = KLineDatas[index]
+    const xtw = this.OptCanvas.measureText(itemData.datetime).width
+
+    this.OptCanvas.beginPath()
+    this.OptCanvas.clearRect(0, this.FrameList['xAxis']['position']['top'], this.FrameList['xAxis']['width'], this.FrameList['xAxis']['height'])
+    this.OptCanvas.fillStyle = g_ThemeResource.BorderColor
+    if (x < xtw / 2 + 10) {
+      this.OptCanvas.fillRect(ToFixedRect(0), ToFixedRect(this.FrameList['xAxis']['position']['top']), ToFixedRect(xtw + 20), ToFixedRect(this.FrameList['xAxis']['height'] - 5))
+      this.OptCanvas.font = "12px sans-serif"
+      this.OptCanvas.fillStyle = g_ThemeResource.FontLightColor
+      this.OptCanvas.fillText(itemData.datetime, ToFixedPoint(10), this.FrameList['xAxis']['position']['top'] + 18)
+    } else {
+      this.OptCanvas.fillRect(ToFixedRect(x - xtw / 2 - 10), ToFixedRect(this.FrameList['xAxis']['position']['top']), ToFixedRect(xtw + 20), ToFixedRect(this.FrameList['xAxis']['height'] - 5))
+      this.OptCanvas.font = "12px sans-serif"
+      this.OptCanvas.fillStyle = g_ThemeResource.FontLightColor
+      this.OptCanvas.fillText(itemData.datetime, ToFixedPoint(x - xtw / 2), this.FrameList['xAxis']['position']['top'] + 18)
+    }
+
+    this.OptCanvas.strokeStyle = g_ThemeResource.FontLightColor
+    this.OptCanvas.lineWidth = 1
+    this.OptCanvas.moveTo(ToFixedPoint(x), ToFixedPoint(this.FrameList['xAxis']['position']['top']))
+    this.OptCanvas.lineTo(ToFixedPoint(x), this.FrameList['xAxis']['position']['top'] + 5)
+
+    this.OptCanvas.stroke()
+    this.OptCanvas.closePath()
+
+    var drawYAxisLabel = function (option) {
+      self.OptCanvas.beginPath()
+      self.OptCanvas.fillStyle = g_ThemeResource.BorderColor
+      self.OptCanvas.fillRect(ToFixedRect(WindowSizeOptions.chartContainerWidth - WindowSizeOptions.yAxisContainerWidth), ToFixedRect(y - 10), ToFixedRect(WindowSizeOptions.yAxisContainerWidth), ToFixedRect(20))
+      self.OptCanvas.font = '12px san-serif'
+      self.OptCanvas.fillStyle = g_ThemeResource.FontLightColor
+      self.OptCanvas.fillText(((((option['height'] - WindowSizeOptions.padding.top - WindowSizeOptions.padding.bottom) - (y - option['position']['top'] - WindowSizeOptions.padding.top)) / option['yAxis'].unitPricePx) + option['yAxis'].Min).toFixed(4), WindowSizeOptions.chartContainerWidth - WindowSizeOptions.yAxisContainerWidth + 10, y + 5)
+      self.OptCanvas.lineWidth = 1
+      self.OptCanvas.strokeStyle = g_ThemeResource.FontLightColor
+      self.OptCanvas.moveTo(WindowSizeOptions.chartContainerWidth - WindowSizeOptions.yAxisContainerWidth, ToFixedPoint(y))
+      self.OptCanvas.lineTo(WindowSizeOptions.chartContainerWidth - WindowSizeOptions.yAxisContainerWidth + 5, ToFixedPoint(y))
+      self.OptCanvas.stroke()
+      self.OptCanvas.closePath()
+    }
+
+    // 绘制Y轴上的标识
+    if (y < this.FrameList['kLine']['position']['top'] + this.FrameList['kLine']['height'] && y > this.FrameList['kLine']['position']['top']) {
+      drawYAxisLabel(this.FrameList['kLine'])
+    } else {
+      for (let i in this.FrameList['indicators']) {
+        if (y < this.FrameList['indicators'][i]['position']['top'] + this.FrameList['indicators'][i]['height'] && y > this.FrameList['indicators'][i]['position']['top']) {
+          drawYAxisLabel(this.FrameList['indicators'][i])
+        }
+      }
+    }
   }
   this.Clear = function () {
 
   }
 }
 
-function BasicCurve () {
+// K线数据处理类
+function KLineDatasFix () {
+  this.Period
+  this.Datas
+  this.PeriodDatasMap
+  this.ChartDatas = new ChartDatas()
+  this.StepPixel = 4 // 移动多少个像素为一单元
+  this.MetaLabelLists = [
+    CONDITION_PERIOD.KLINE_MINUTE_ID,
+    CONDITION_PERIOD.KLINE_60_MINUTE_ID,
+    CONDITION_PERIOD.KLINE_DAY_ID
+  ]
+  /**
+   * 
+   * @param {新获取的数据} datas 
+   * @param {类型：new / history} type 
+   * @description 将新获取的数据跟已有数据进行合并
+   */
+  this.MergeData = function (datas, type) {
+  }
 
+  /**
+   * @description 生成周期数据
+   * @param {周期} period 
+   */
+  this.GeneratePeriodData = function (period) {
+    if (period > 0 && period < 4) {
+
+    } else if (period > 4 && period < 8) {
+
+    }
+  }
+
+  /**
+   * @description 要切换的周期
+   * @param {周期} period 
+   */
+  this.SwitchPeriod = function (period) {
+    if (this.PeriodDatasMap[period]) {
+      this.Period = period
+      this.Datas = this.PeriodDatasMap[period]
+      return
+    }
+    if (period == CONDITION_PERIOD.KLINE_MINUTE_ID || period == CONDITION_PERIOD.KLINE_60_MINUTE_ID || period == CONDITION_PERIOD.KLINE_DAY_ID) {
+      this.ChartDatas.RequestDatas(period)
+      return
+    }
+    this.GeneratePeriodData(period)
+  }
+
+  this.MoveDatas = function (step, isLeft) {
+    if (isLeft) {
+      CurDataOffset < chartDatas.Datas.length - 1 && (CurDataOffset += Math.ceil(8 / ZOOM_SEED[CurScaleIndex][0]))
+      if (CurDataOffset > chartDatas.Datas.length - 1) CurDataOffset = chartDatas.Datas.length - 1
+      return true
+    } else {
+      if (LeftDatasIndex <= 0) return false
+      LeftDatasIndex -= Math.ceil(8 / ZOOM_SEED[CurScaleIndex][0])
+      if (LeftDatasIndex < 0) {
+        LeftDatasIndex += Math.ceil(8 / ZOOM_SEED[CurScaleIndex][0])
+        CurDataOffset -= LeftDatasIndex
+      } else {
+        CurDataOffset -= Math.ceil(8 / ZOOM_SEED[CurScaleIndex][0])
+      }
+      return true
+    }
+  }
+
+  this.SplitDatas = function () {
+    LeftDatasIndex = CurDataOffset + 1 - KNum
+    if (LeftDatasIndex < 0 && CurDataOffset - LeftDatasIndex <= chartDatas.Datas.length - 1) {
+      CurDataOffset -= LeftDatasIndex
+      LeftDatasIndex = 0
+    }
+    KLineDatas = chartDatas.Datas.slice(LeftDatasIndex, CurDataOffset == chartDatas.Datas.length - 1 ? -1 : CurDataOffset)
+    console.log(LeftDatasIndex, CurDataOffset, KLineDatas)
+  }
+
+  this.ScaleKLine = function (e) {
+    if (e > 0) {
+      // 放大
+      if (CurScaleIndex <= 0) {
+        return false
+      }
+      CurScaleIndex--
+    } else {
+      // 缩小
+      if (CurScaleIndex >= ZOOM_SEED.length - 1) {
+        return false
+      }
+      CurScaleIndex++
+    }
+    KNum = Math.ceil((WindowSizeOptions.chartContainerWidth - WindowSizeOptions.yAxisContainerWidth) / (ZOOM_SEED[CurScaleIndex][0] + ZOOM_SEED[CurScaleIndex][1]))
+    return true
+  }
 }
 
-
-function BasicRect () {
-
-}
-
-// windowFrame 左上角标题工具栏
-function TitleTool () {
-  this.Name
-  this.Value = {
-
-  }
-  this.IsHide = false
-  this.WindowFrame
-  /**
-   * @description 创建组件
-   * @param {名称} name 
-   * @param {初始值} value 
-   * @param {窗口框架} windowFrame 
-   */
-  this.Create = function (name, value, windowFrame) {
-
-  }
-  /**
-   * @description 更新
-   * @param {名称} name 
-   * @param {更新值} value 
-   */
-  this.Update = function (name, value) {
-
-  }
-  /**
-   * @description 隐藏组件
-   */
-  this.Hide = function () {
-
-  }
-  /**
-   * @description 整个窗口框架关闭
-   */
-  this.Close = function () {
-
-  }
-  /**
-   * @description 指标设置
-   */
-  this.Settings = function () {
-
-  }
-}
 
 // 顶部工具栏容器
 function TopToolContainer () {
   this.FeaturesList
   this.CurSelectIndex
   this.Width
-  this.Height = 60
+  this.Height = 38
+
+  this.Period
   this.Create = function (width) {
     this.Width = width
     this.DivElement = document.createElement('div')
     this.DivElement.id = Guid()
+    this.DivElement.className = "top-container"
     this.DivElement.style.width = this.Width + 'px'
     this.DivElement.style.height = this.Height + 'px'
     this.DivElement.style.backgroundColor = g_ThemeResource.BgColor
     this.DivElement.style.borderBottom = g_ThemeResource.BorderWidth[0] + "px solid " + g_ThemeResource.BorderColor
+    this.DivElement.innerHTML =
+      ' <div id="goto-btn" class="item" ><span class="iconfont icon-lsh-jump" style="margin-right:2px;"></span>跳转到</div>\n' +
+      ' <div id="period-btn" class="item">周 期</div>\n' +
+      ' <div id="indicators-btn" class="item"><span class="iconfont icon-fx" style="margin-right:2px;"></span> 指 标</div>\n' +
+      ' <div id="pre-signal-btn" class="item"><span class="iconfont icon-xiayiye1" style="margin-right:2px;"></span> 信号</div>\n' +
+      ' <div id="next-signal-btn" class="item">信号<span class="iconfont icon-xiayiye" style="margin-left:2px;"></span> </div>\n' +
+      ' <div style="flex-grow:1"></div>\n' +
+      ' <div id="settings-btn" class="item" style="border-left:1.5px solid #353d5a"><span class="iconfont icon-shezhi"></span></div>\n' +
+      ' <div id="scale-big-btn" class="item"><span class="iconfont icon-quanping"></span></div>\n' +
+      ' <div id="shot-btn" class="item"><span class="iconfont icon-kuaizhao"></span></div>\n'
     return this.DivElement
+  }
+
+  this.CreatePeriodDialog = function () {
+
   }
 }
 
@@ -820,73 +1041,154 @@ function LeftToolContainer () {
     this.DivElement.style.height = this.Height + 'px'
     this.DivElement.style.backgroundColor = g_ThemeResource.BgColor
     this.DivElement.style.borderRight = g_ThemeResource.BorderWidth[0] + "px solid " + g_ThemeResource.BorderColor
+
+    this.DivElement.innerHTML =
+      '<div style="text-align:center;height:40px;line-height:40px;width:60px;border-bottom:1px solid #353d5a"><span class="iconfont icon-caidan" style="font-size: 28px;color: #8d9bab;"></span></div>\n' +
+      '<div id="line-tool" class="draw-tool-item" style="margin-top:10px"><span class="iconfont icon-xianduan1" style="font-size: 30px;"></span></div>\n' +
+      '<div id="rect-tool" class="draw-tool-item"><span class="iconfont icon-juxing" style="font-size: 30px;"></span></div>'
     return this.DivElement
   }
-}
 
-// 周期选择Dialog
-function PeriodDialog () {
-  this.PeriodList
-  this.CurSelectIndex
-  this.Create = function () {
-
+  this.RegisterClickEvent = function (callback) {
+    $("#line-tool").click(function (e) { callback('line-tool') })
+    $("#rect-tool").click(function (e) { callback("rect-tool") })
   }
 }
 
-// 指标选择Dialog
-function IndicatorSelectDialog () {
-  this.IndicatorLists
-  this.CategoryLists
-  this.CurSelectCategoryIndex
-  this.CurSelectIndicatorIndex
-  this.Create = function () {
-
+function TitleToolContainer () {
+  this.Option
+  this.DivElement
+  this.CurValue = {}
+  this.Create = function (option) {
+    this.Option = option
+    this.DivElement = document.createElement('div')
+    this.DivElement.className = "title-tool"
+    this.DivElement.id = option.name + '-title-tool'
+    this.DivElement.innerHTML =
+      '<div id="left-box" class="left-box">\n' +
+      ' <div id="name-box">\n' +
+      '   <span id="name" style="color:#8d9bab"></span>\n' +
+      '   <span id="show-hide" class="iconfont icon-xianshi icon" style="color:#8d9bab;font-size:18px;margin-left:5px"></span>\n' +
+      '   <span id="settings" class="iconfont icon-shezhi icon" style="color:#8d9bab;font-size:18px;margin-left:5px"></span>\n' +
+      '   <span id="close-icon" class="iconfont icon-guanbi icon" style="color:#8d9bab;font-size:18px;margin-left:5px"></span>\n' +
+      ' </div>\n' +
+      ' <div id="value-box" style="margin-left:10px"></div>\n' +
+      '</div>\n' +
+      '<div style="flex-grow:1"></div>\n' +
+      '<div id="right-box">\n' +
+      '   <span id="show-hide" class="iconfont icon-xiajiangxiajiantouxiangxiadiexianxing icon" style="color:#8d9bab;font-size:20px;margin-left:5px"></span>\n' +
+      '   <span id="settings" class="iconfont icon-shangshengshangjiantouxiangshangzhangxianxing icon" style="color:#8d9bab;font-size:20px;margin-left:5px"></span>\n' +
+      '   <span id="scale" class="iconfont icon-quanping icon" style="color:#8d9bab;font-size:20px;margin-left:5px"></span>\n' +
+      '   <span id="close" class="iconfont icon-guanbi icon" style="color:#8d9bab;font-size:20px;margin-left:5px"></span>\n' +
+      '<div>'
+    this.DivElement.style.top = option.position.top + 10 + 'px'
+    this.DivElement.style.left = option.position.left + 10 + 'px'
+    this.DivElement.style.width = WindowSizeOptions.chartContainerWidth - WindowSizeOptions.yAxisContainerWidth - option.position.left - 20 + 'px'
+    return this.DivElement
   }
+
+  this.CreateValueBox = function () {
+    var valueElement = document.getElementById('value-box')
+    if (this.Option.name == 'kLine') {
+      $('#name').text(this.Option.symbol).css('font-size', '18px')
+      valueElement.innerHTML =
+        '<span class="value-box_label">开=</span><span id="open" class="value-box_value"></span>\n' +
+        '<span class="value-box_label">高=</span><span id="high" class="value-box_value"></span>\n' +
+        '<span class="value-box_label">低=</span><span id="low" class="value-box_value"></span>\n' +
+        '<span class="value-box_label">收=</span><span id="close" class="value-box_value"></span>\n' +
+        '<span id="rate" class="value-box_value"></span>'
+    } else {
+      $('#name').text(this.Option.name).css('font-size', '16px')
+      for (let i in this.Option.datas) {
+        var span = document.createElement('span')
+        span.id = i
+        span.style.color = this.Options.settings.themes[i].color
+        span.className = 'value-box_value'
+      }
+    }
+  }
+
+  /**
+   * @description 设置当前 titleTool 的值
+   * @param {当前值} curValue 
+   */
+  this.SetValue = function (curValue) {
+    if (this.Option.name == 'kLine') {
+      var colorStyle
+      if (curValue['open'] > curValue['close']) {
+        colorStyle = g_ThemeResource.DownColor
+      } else if (curValue['open'] < curValue['close']) {
+        colorStyle = g_ThemeResource.UpColor
+      } else {
+        colorStyle = g_ThemeResource.FontColor
+      }
+      for (let i in curValue) {
+        $('#' + i).css('color', colorStyle)
+        $('#' + i).text(curValue[i])
+      }
+    } else {
+      for (let i in curValue) {
+        $('#' + i).text(curValue[i])
+      }
+    }
+  }
+
+
 }
 
-// 指标配置Dialog
-function IndicatorConfigDialog () {
-  this.Name
-  this.Params
-  this.Style
-  this.TabList = [
-    '参数',
-    '样式'
+function DrawTool () {
+
+}
+
+function LineElement () {
+  this.Position = [
+    [null, null],
+    [null, null],
   ]
-  this.CurTabIndex
-  this.OriginalConfig = {}
-  this.ChangeConfig = {}
+  this.Color = g_ThemeResource.FontColor
+  this.LineWidth = 2
+  this.Canvas
+  this.Option
+  this.IsFinished = false
 
-  this.Create = function () {
-
+  this.Create = function (canvas, option) {
+    this.Canvas = canvas
+    this.Option = option
   }
-  this.Close = function () {
+  this.Draw = function (drag) {
+    if (drag) {
+      this.Position[0][0] = Math.ceil(drag.click.X / (ZOOM_SEED[CurScaleIndex][1] + ZOOM_SEED[CurScaleIndex][0])) + LeftDatasIndex
+      this.Position[0][1] = ((((this.Option['height'] - WindowSizeOptions.padding.top - WindowSizeOptions.padding.bottom) - (drag.click.Y - this.Option['position']['top'] - WindowSizeOptions.padding.top)) / this.Option['yAxis'].unitPricePx) + this.Option['yAxis'].Min)
 
+      this.Position[1][0] = Math.ceil(drag.lastMove.X / (ZOOM_SEED[CurScaleIndex][1] + ZOOM_SEED[CurScaleIndex][0])) + LeftDatasIndex
+      this.Position[1][1] = ((((this.Option['height'] - WindowSizeOptions.padding.top - WindowSizeOptions.padding.bottom) - (drag.lastMove.Y - this.Option['position']['top'] - WindowSizeOptions.padding.top)) / this.Option['yAxis'].unitPricePx) + this.Option['yAxis'].Min)
+    }
+    this.Canvas.beginPath()
+    this.Canvas.setLineDash([0, 0])
+    this.Canvas.lineWidth = this.LineWidth
+    this.Canvas.strokeStyle = this.Color
+    let x = (ZOOM_SEED[CurScaleIndex][0] + ZOOM_SEED[CurScaleIndex][1]) * (this.Position[0][0] - LeftDatasIndex) - ZOOM_SEED[CurScaleIndex][0] / 2 - ZOOM_SEED[CurScaleIndex][1]
+    let y = this.Option.height - WindowSizeOptions.padding.top - WindowSizeOptions.padding.bottom - (this.Position[0][1] - this.Option['yAxis'].Min) * this.Option['yAxis'].unitPricePx + WindowSizeOptions.padding.top
+    let ex = (ZOOM_SEED[CurScaleIndex][0] + ZOOM_SEED[CurScaleIndex][1]) * (this.Position[1][0] - LeftDatasIndex) - ZOOM_SEED[CurScaleIndex][0] / 2 - ZOOM_SEED[CurScaleIndex][1]
+    let ey = this.Option.height - WindowSizeOptions.padding.top - WindowSizeOptions.padding.bottom - (this.Position[1][1] - this.Option['yAxis'].Min) * this.Option['yAxis'].unitPricePx + WindowSizeOptions.padding.top
+    this.Canvas.moveTo(x, y)
+    this.Canvas.lineTo(ex, ey)
+    this.Canvas.stroke()
+    this.Canvas.closePath()
+    return this.Position
   }
-  this.ConfigStyle = function () {
 
-  }
-  this.ConfigParams = function () {
-
-  }
-  this.CancelDialog = function () {
-
-  }
-  this.ComfirmDialog = function () {
-
+  this.ClearCanvas = function () {
+    this.Canvas.clearRect(this.Option.position.left, this.Option.position.top, this.Option.width, this.Option.height)
   }
 }
 
-// 跳转时间Dialog
-function GoToTimeDialog () {
-  this.CurTime
-  this.CurDate
-  this.ToTime
-  this.ToDate
+function TextElement () {
 
-  this.GoTo = function () {
+}
 
-  }
+function RectElement () {
+
 }
 
 // 主题设置Dialog
@@ -897,7 +1199,7 @@ function ThemeSettingsDialog () {
   this.FontLightColor = "#ffffff"
   this.UpColor = "#26a69a"
   this.DownColor = "#ef5350"
-  this.BorderWidth = [3, 1]
+  this.BorderWidth = [2, 1]
   this.SettingsList
 
   this.Create = function () {
@@ -962,100 +1264,6 @@ function ThemeSettingsDialog () {
   }
 }
 
-// K线数据处理类
-function KLineDatasFix () {
-  this.Period
-  this.Datas
-  this.PeriodDatasMap
-  this.ChartDatas = new ChartDatas()
-  this.MetaLabelLists = [
-    CONDITION_PERIOD.KLINE_MINUTE_ID,
-    CONDITION_PERIOD.KLINE_60_MINUTE_ID,
-    CONDITION_PERIOD.KLINE_DAY_ID
-  ]
-  /**
-   * 
-   * @param {新获取的数据} datas 
-   * @param {类型：new / history} type 
-   * @description 将新获取的数据跟已有数据进行合并
-   */
-  this.MergeData = function (datas, type) {
-  }
-
-  /**
-   * @description 生成周期数据
-   * @param {周期} period 
-   */
-  this.GeneratePeriodData = function (period) {
-    if (period > 0 && period < 4) {
-
-    } else if (period > 4 && period < 8) {
-
-    }
-  }
-
-  /**
-   * @description 要切换的周期
-   * @param {周期} period 
-   */
-  this.SwitchPeriod = function (period) {
-    if (this.PeriodDatasMap[period]) {
-      this.Period = period
-      this.Datas = this.PeriodDatasMap[period]
-      return
-    }
-    if (period == CONDITION_PERIOD.KLINE_MINUTE_ID || period == CONDITION_PERIOD.KLINE_60_MINUTE_ID || period == CONDITION_PERIOD.KLINE_DAY_ID) {
-      this.ChartDatas.RequestDatas(period)
-      return
-    }
-    this.GeneratePeriodData(period)
-  }
-}
-
-// 指标数据处理类
-function IndicatorDatasFix (kLineDatas) {
-
-  this.KLineDatas = kLineDatas
-  // map类型，存放多个指标数据和配置
-  this.IndicatorDatas = {
-    // 指标名称
-    name: {
-      config: {
-        params: {},
-        styles: {}
-      },
-      datas: {
-        // 周期
-        1: {
-          'macd': [],
-          'dif': [],
-          'dea': []
-        }
-      }
-    }
-  }
-
-  /**
-   * @description 指标运算
-   * @param {指标名称} indicatorName 
-   * @param {数据类型：new / old} type
-   */
-  this.Operating = function (indicatorName, type) {
-
-  }
-
-
-  /**
-   * @description 指标数据合并
-   * @param {指标数据} datas 
-   * @param {数据类型：new / old} type 
-   */
-  this.MergeData = function (datas, type) {
-
-  }
-
-}
-
 // 图表数据获取类
 function ChartDatas () {
   this.Datas = kLines
@@ -1073,14 +1281,38 @@ function ChartDatas () {
   }
 }
 
+
+
 ChartDatas.Init = function () {
   var datas = new ChartDatas()
   return datas
 }
 
 var chartDatas = ChartDatas.Init()
-
+var KLineDatas = chartDatas.Datas
+var CurDataOffset = chartDatas.Datas.length - 1 // 初始化开始，数据范围右游标为 -1
+var LeftDatasIndex = 0
+var KNum // 一屏可容纳的K线数量
 var g_ThemeResource = new ThemeSettingsDialog()
+
+var pixelTatio = GetDevicePixelRatio();
+var WindowSizeOptions = {
+  windowHeight: 0,
+  windowWidth: 0,
+  topToolContainerHeight: 38,
+  leftToolContainerWidth: 60,
+  chartContainerWidth: 0,
+  chartContainerHeight: 0,
+  xAxisContainerHeight: 28,
+  yAxisContainerWidth: 60,
+  chartScale: 2.3, // K线图表和指标图表的比例
+  padding: {
+    'top': 20,
+    'bottom': 20,
+    'left': 0,
+    'right': 0
+  }
+}
 
 //周期条件枚举
 var CONDITION_PERIOD =
@@ -1101,8 +1333,7 @@ var CONDITION_PERIOD =
   KLINE_60_MINUTE_ID: 8
 };
 
-var CurScaleMargin = 6
-var CurScaleWidth = 18
+var CurScaleIndex = 8
 var ZOOM_SEED =
   [
     [48, 10], [44, 10],
@@ -1111,9 +1342,14 @@ var ZOOM_SEED =
     [24, 7], [20, 7],
     [18, 6], [16, 6],
     [14, 5], [12, 5],
-    [8, 4], [3, 3],
+    [8, 4], [6, 4],
+    [6, 3], [3, 3],
     [3, 1], [2, 1],
-    [1, 1], [0, 1]
+    [1, 1], [1, 0.5],
+    [1, 0.2], [1, 0.1],
+    [0.8, 0.1], [0.6, 0.1],
+    [0.5, 0.1], [0.4, 0.1],
+    [0.3, 0.1], [0.2, 0.1]
   ];
 
 function GetDevicePixelRatio () {
@@ -1152,4 +1388,3 @@ function accAdd (arg1, arg2) {
 Number.prototype.add = function (arg) {
   return accAdd(arg, this);
 }
-
