@@ -104,3 +104,27 @@ ol li {
 .draw-tool-item:hover {
   background: #353d5a;
 }
+
+.draw-tool-opt-dialog {
+  background: #353d5a;
+  position: absolute;
+  z-index: 10;
+  padding: 5px;
+  border-radius: 2px;
+  box-shadow: 0px 1px 30px 0px #000000;
+}
+
+.draw-tool-opt-dialog .item {
+  font-size: 14px;
+  color: #b2b5b1;
+  border-bottom: 1px solid #8d9bab;
+  display: flex;
+  align-items: center;
+  padding: 10px;
+}
+
+.draw-tool-opt-dialog .item .label {
+  color: #8d9bab;
+  flex-grow: 1;
+  text-align: right;
+}

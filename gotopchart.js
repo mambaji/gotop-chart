@@ -20,10 +20,13 @@ function GoTopChart (divElement) {
 
   this.KLineDatasFix = new KLineDatasFix()
   this.Cursor = new CrossCursor()
+  this.DrawToolObjOptDialog = new DrawToolObjOptDialog()
+  this.ChartElement.appendChild(this.DrawToolObjOptDialog.Create())
 
   this.TitleToolList = []
   this.DrawToolList = []
   var curSelectDrawToolIndex = null
+  var curSelectPoint = null
   this.Options = {}
   this.Status = 0 // 0光标模式、1数据拖动、2画图工具
   this.Drag = false
@@ -56,6 +59,22 @@ function GoTopChart (divElement) {
         console.log('click line-tool')
         break;
       case "rect-tool":
+        break;
+    }
+  })
+
+  /**
+   * @description 注册 画图工具optdialog 点击事件
+   */
+  this.DrawToolObjOptDialog.RegisterClickEvent(function (type) {
+    switch (type) {
+      case 'delete':
+        if (curSelectDrawToolIndex) {
+          self.DrawToolList.splice(curSelectDrawToolIndex, 1)
+          curSelectDrawToolIndex != null && (curSelectDrawToolIndex = null)
+          curSelectPoint != null && (curSelectPoint = null)
+          self.DrawToolObjOptDialog.SetHide()
+        }
         break;
     }
   })
@@ -137,27 +156,31 @@ function GoTopChart (divElement) {
   }
 
   /**
-   * @description 坐标是否在 路径上面
+   * @description 坐标是否在线段 路径上面
    * @param {*} x 
    * @param {*} y 
    */
-  this.IsPointInPath = function (x, y) {
+  this.IsPointInLinePath = function (x, y) {
     if (this.DrawToolList.length == 0) return -1
     for (let i in this.DrawToolList) {
       if (!this.DrawToolList[i].Option) continue
-      var startX, startY
+      if (this.DrawToolList[i].Position.length < 2) continue
+
+      var x1 = (ZOOM_SEED[CurScaleIndex][0] + ZOOM_SEED[CurScaleIndex][1]) * (this.DrawToolList[i].Position[0][0] - LeftDatasIndex) - ZOOM_SEED[CurScaleIndex][0] / 2 - ZOOM_SEED[CurScaleIndex][1]
+      var y1 = this.DrawToolList[i].Option.height - WindowSizeOptions.padding.top - WindowSizeOptions.padding.bottom - (this.DrawToolList[i].Position[0][1] - this.DrawToolList[i].Option['yAxis'].Min) * this.DrawToolList[i].Option['yAxis'].unitPricePx + WindowSizeOptions.padding.top
+      var x2 = (ZOOM_SEED[CurScaleIndex][0] + ZOOM_SEED[CurScaleIndex][1]) * (this.DrawToolList[i].Position[1][0] - LeftDatasIndex) - ZOOM_SEED[CurScaleIndex][0] / 2 - ZOOM_SEED[CurScaleIndex][1]
+      var y2 = this.DrawToolList[i].Option.height - WindowSizeOptions.padding.top - WindowSizeOptions.padding.bottom - (this.DrawToolList[i].Position[1][1] - this.DrawToolList[i].Option['yAxis'].Min) * this.DrawToolList[i].Option['yAxis'].unitPricePx + WindowSizeOptions.padding.top
       this.WindowFrame.OptCanvas.beginPath()
-      this.WindowFrame.OptCanvas.lineWidth = this.DrawToolList[i].LineWidth + 2
-      for (let p in this.DrawToolList[i].Position) {
-        var x = (ZOOM_SEED[CurScaleIndex][0] + ZOOM_SEED[CurScaleIndex][1]) * (this.DrawToolList[i].Position[p][0] - LeftDatasIndex) - ZOOM_SEED[CurScaleIndex][0] / 2 - ZOOM_SEED[CurScaleIndex][1]
-        var y = this.DrawToolList[i].Option.height - WindowSizeOptions.padding.top - WindowSizeOptions.padding.bottom - (this.DrawToolList[i].Position[p][1] - this.DrawToolList[i].Option['yAxis'].Min) * this.DrawToolList[i].Option['yAxis'].unitPricePx + WindowSizeOptions.padding.top
-        if (!startX && !startY) {
-          startX = x
-          startY = y
-          this.WindowFrame.OptCanvas.moveTo(startX, startY)
-        } else {
-          this.WindowFrame.OptCanvas.lineTo(startX, startY)
-        }
+      if (x1 == x2) {
+        this.WindowFrame.OptCanvas.moveTo(x1 - 5, y1);
+        this.WindowFrame.OptCanvas.lineTo(x1 + 5, y1);
+        this.WindowFrame.OptCanvas.lineTo(x2 + 5, y2);
+        this.WindowFrame.OptCanvas.lineTo(x2 - 5, y2);
+      } else {
+        this.WindowFrame.OptCanvas.moveTo(x1, y1 + 5)
+        this.WindowFrame.OptCanvas.lineTo(x1, y1 - 5)
+        this.WindowFrame.OptCanvas.lineTo(x2, y2 - 5)
+        this.WindowFrame.OptCanvas.lineTo(x2, y2 + 5)
       }
       this.WindowFrame.OptCanvas.closePath()
       if (this.WindowFrame.OptCanvas.isPointInPath(x, y)) {
@@ -167,12 +190,26 @@ function GoTopChart (divElement) {
     return -1
   }
 
+  /**
+   * @description the xyvalue is at which point 
+   * @param {*} x 
+   * @param {*} y 
+   */
+  this.IsPointInPointPath = function (x, y) {
+    for (let i in this.DrawToolList[curSelectDrawToolIndex].Position) {
+      this.WindowFrame.OptCanvas.beginPath();
+      var ex = (ZOOM_SEED[CurScaleIndex][0] + ZOOM_SEED[CurScaleIndex][1]) * (this.DrawToolList[curSelectDrawToolIndex].Position[i][0] - LeftDatasIndex) - ZOOM_SEED[CurScaleIndex][0] / 2 - ZOOM_SEED[CurScaleIndex][1]
+      var ey = this.DrawToolList[curSelectDrawToolIndex].Option.height - WindowSizeOptions.padding.top - WindowSizeOptions.padding.bottom - (this.DrawToolList[curSelectDrawToolIndex].Position[i][1] - this.DrawToolList[curSelectDrawToolIndex].Option['yAxis'].Min) * this.DrawToolList[curSelectDrawToolIndex].Option['yAxis'].unitPricePx + WindowSizeOptions.padding.top
+      this.WindowFrame.OptCanvas.arc(ex, ey, 5, 0, 360);
+      if (this.WindowFrame.OptCanvas.isPointInPath(x, y)) return i;
+    }
+    return -1
+  }
+
   this.ChartElement.onmousemove = function (e) {
+    if (!self.DrawToolObjOptDialog.isHide) return
     if ((e.offsetY) * pixelTatio < WindowSizeOptions.chartContainerHeight - WindowSizeOptions.xAxisContainerHeight && (e.offsetX) * pixelTatio < WindowSizeOptions.chartContainerWidth - WindowSizeOptions.yAxisContainerWidth) {
-
-
       self.WindowFrame.OptCanvas.clearRect(0, 0, WindowSizeOptions.chartContainerWidth, WindowSizeOptions.chartContainerHeight)
-
       // 光标移动
       if (self.Status == 0 && self.Drag == false) {
         // 把所有画图工具进行 isSelect 重置
@@ -180,10 +217,11 @@ function GoTopChart (divElement) {
           self.DrawToolList[d].IsSelect = false
         }
         // 处理画图工具IsSelect；select 和 hover
-        if (curSelectDrawToolIndex) {
+        // 0 也是 false
+        if (curSelectDrawToolIndex != null) {
           self.DrawToolList[curSelectDrawToolIndex].IsSelect = true
         }
-        var isPointInPath = self.IsPointInPath(e.offsetX, e.offsetY)
+        var isPointInPath = self.IsPointInLinePath(e.offsetX, e.offsetY)
         if (isPointInPath != -1) {
           self.DrawToolList[isPointInPath].IsSelect = true
         }
@@ -204,7 +242,7 @@ function GoTopChart (divElement) {
         }
       }
       // 数据拖动
-      if (self.Status == 0 && self.Drag == true) {
+      if (self.Status == 0 && self.Drag == true && curSelectDrawToolIndex == null) {
         let moveStep = Math.abs(drag.lastMove.X - e.offsetX)
         if (moveStep > 5) {
           let isLeft = true
@@ -212,12 +250,39 @@ function GoTopChart (divElement) {
           if (self.KLineDatasFix.MoveDatas(moveStep, isLeft)) {
             self.KLineDatasFix.SplitDatas()
             self.SetOption(self.Options)
-            drag.lastMove.X = e.offsetX
-            drag.lastMove.Y = e.offsetY
           }
         }
+        drag.lastMove.X = e.offsetX
+        drag.lastMove.Y = e.offsetY
+      }
+
+      // 画图工具 整体 拖动
+      if (curSelectDrawToolIndex != null && curSelectPoint == null && self.Drag == true) {
+        if (self.DrawToolList[curSelectDrawToolIndex].Name == 'line') {
+          let moveY = e.offsetY - drag.lastMove.Y
+          let lastIndex = Math.ceil(drag.lastMove.X / (ZOOM_SEED[CurScaleIndex][1] + ZOOM_SEED[CurScaleIndex][0]))
+          let offsetIndex = Math.ceil(e.offsetX / (ZOOM_SEED[CurScaleIndex][1] + ZOOM_SEED[CurScaleIndex][0]))
+          for (let i in self.DrawToolList[curSelectDrawToolIndex].Position) {
+            self.DrawToolList[curSelectDrawToolIndex].UpdatePoint(i, offsetIndex - lastIndex, moveY)
+          }
+        }
+        drag.lastMove.X = e.offsetX
+        drag.lastMove.Y = e.offsetY
+      }
+
+      // 画图工具 某个点进行改动
+      if (curSelectDrawToolIndex != null && curSelectPoint != null && self.Drag == true) {
+        if (self.DrawToolList[curSelectDrawToolIndex].Name == 'line') {
+          let moveY = e.offsetY - drag.lastMove.Y
+          let lastIndex = Math.ceil(drag.lastMove.X / (ZOOM_SEED[CurScaleIndex][1] + ZOOM_SEED[CurScaleIndex][0]))
+          let offsetIndex = Math.ceil(e.offsetX / (ZOOM_SEED[CurScaleIndex][1] + ZOOM_SEED[CurScaleIndex][0]))
+          self.DrawToolList[curSelectDrawToolIndex].UpdatePoint(curSelectPoint, offsetIndex - lastIndex, moveY)
+        }
+        drag.lastMove.X = e.offsetX
+        drag.lastMove.Y = e.offsetY
       }
     }
+
     for (let i in self.DrawToolList) {
       self.DrawToolList[i].Canvas && self.DrawToolList[i].Draw(e.offsetX, e.offsetY)
     }
@@ -231,6 +296,15 @@ function GoTopChart (divElement) {
   }
 
   this.ChartElement.onmousedown = function (e) {
+    console.log(e.clientX, e.clientY, self.DrawToolObjOptDialog.GetPosition().x + WindowSizeOptions.leftToolContainerWidth + WindowSizeOptions.chartLeft)
+    if (self.DrawToolObjOptDialog.isHide == false && e.clientX >= self.DrawToolObjOptDialog.GetPosition().x + WindowSizeOptions.leftToolContainerWidth + WindowSizeOptions.chartLeft && e.offsetX <= self.DrawToolObjOptDialog.GetPosition().x + WindowSizeOptions.leftToolContainerWidth + WindowSizeOptions.chartLeft + WindowSizeOptions.drawToolOptDialogWidth
+      && e.clientY >= self.DrawToolObjOptDialog.GetPosition().y + WindowSizeOptions.topToolContainerHeight + WindowSizeOptions.chartTop && e.offsetY <= self.DrawToolObjOptDialog.GetPosition().y + WindowSizeOptions.topToolContainerHeight + WindowSizeOptions.chartTop + self.DrawToolObjOptDialog.GetHeight()) {
+      // 点击在 drawToolObjOpt 区域 内
+      return
+    } else if (!self.DrawToolObjOptDialog.isHide) {
+      self.DrawToolObjOptDialog.SetHide()
+    }
+
     drag.click.X = e.offsetX
     drag.click.Y = e.offsetY
     drag.lastMove.X = e.offsetX
@@ -258,17 +332,33 @@ function GoTopChart (divElement) {
         !self.DrawToolList[self.DrawToolList.length - 1].IsSelect && (self.DrawToolList[self.DrawToolList.length - 1].IsSelect = true, curSelectDrawToolIndex = self.DrawToolList.length - 1)
       }
     } else {
-      var isPointInPath = self.IsPointInPath(e.offsetX, e.offsetY)
+      var isPointInPath = self.IsPointInLinePath(e.offsetX, e.offsetY)
       if (isPointInPath != -1) {
         self.DrawToolList[isPointInPath].IsSelect = true
         curSelectDrawToolIndex = isPointInPath
+        var isPointInPointPath = self.IsPointInPointPath(e.offsetX, e.offsetY)
+        if (isPointInPointPath != -1) {
+          curSelectPoint = isPointInPointPath
+        } else {
+          curSelectPoint = null
+        }
       } else {
         curSelectDrawToolIndex = null
+        isPointInPointPath = null
       }
     }
   }
 
   this.ChartElement.onmouseup = function (e) {
+    if (!e) e = window.event;
+    if (e.button == 2) {
+      // 右键 弹出 画图对象 的opt弹窗
+      if (curSelectDrawToolIndex) {
+        self.DrawToolObjOptDialog.SetPosition(e.offsetX, e.offsetY)
+        self.DrawToolObjOptDialog.SetShow()
+      }
+    }
+
     self.Drag = false
     if (self.Status == 2) {
       // 松开鼠标即画图结束
@@ -279,6 +369,9 @@ function GoTopChart (divElement) {
         self.Status = 0
       }
     }
+  }
+  this.ChartElement.oncontextmenu = function (e) {
+    e.preventDefault()
   }
 }
 
@@ -1195,7 +1288,58 @@ function DrawTool () {
 
 }
 
+function DrawToolObjOptDialog () {
+  this.DivElement
+  this.isHide = true
+  this.Create = function () {
+    this.DivElement = document.createElement('div')
+    this.DivElement.className = 'draw-tool-opt-dialog'
+    this.DivElement.id = 'draw-tool-opt-dialog'
+    this.DivElement.style.display = 'none'
+    this.DivElement.style.width = WindowSizeOptions.drawToolOptDialogWidth + 'px'
+    this.DivElement.innerHTML =
+      '<div class="item" style="width:' + WindowSizeOptions.drawToolOptDialogWidth + 'px" id="draw-tool-opt_delete"><span class="iconfont icon-shanchu1"></span><span style="margin-left:10px">删除</span><span class="label">Del</span></div>'
+    return this.DivElement
+  }
+
+  this.RegisterClickEvent = function (callback) {
+    $('#draw-tool-opt_delete').click(function (e) {
+      callback('delete')
+      e.preventDefault()
+    })
+  }
+
+  this.SetPosition = function (x, y) {
+    this.DivElement.style.left = x + 'px'
+    this.DivElement.style.top = y + 'px'
+  }
+
+  this.SetShow = function () {
+    this.isHide = false
+    this.DivElement.style.display = 'flex'
+  }
+
+  this.SetHide = function () {
+    this.isHide = true
+    this.DivElement.style.display = 'none'
+  }
+
+  this.GetPosition = function () {
+    return {
+      x: parseFloat(this.DivElement.style.left.replace('px', '')),
+      y: parseFloat(this.DivElement.style.top.replace('px', ''))
+    }
+  }
+
+  this.GetHeight = function () {
+    return this.DivElement.offsetHeight
+  }
+
+
+}
+
 function LineElement () {
+  this.Name = 'line'
   this.Position = [
   ]
   this.Point = []
@@ -1218,6 +1362,18 @@ function LineElement () {
     var item = [index, price]
     this.Position.push(item)
   }
+  /**
+   * @description update point axis
+   * @param {update point is index} index 
+   * @param {move hori px} xStep 
+   * @param {move veri px} yStep 
+   */
+  this.UpdatePoint = function (i, moveIndex, yStep) {
+    var y = this.Option.height - WindowSizeOptions.padding.top - WindowSizeOptions.padding.bottom - (this.Position[i][1] - this.Option['yAxis'].Min) * this.Option['yAxis'].unitPricePx + WindowSizeOptions.padding.top
+    y += yStep
+    this.Position[i][1] = ((((this.Option['height'] - WindowSizeOptions.padding.top - WindowSizeOptions.padding.bottom) - (y - this.Option['position']['top'] - WindowSizeOptions.padding.top)) / this.Option['yAxis'].unitPricePx) + this.Option['yAxis'].Min)
+    this.Position[i][0] += moveIndex
+  }
   this.Draw = function (x, y) {
     if (this.Position.length == 0) return
     var startX, startY, endX, endY
@@ -1227,7 +1383,8 @@ function LineElement () {
       endX = (ZOOM_SEED[CurScaleIndex][0] + ZOOM_SEED[CurScaleIndex][1]) * (this.Position[1][0] - LeftDatasIndex) - ZOOM_SEED[CurScaleIndex][0] / 2 - ZOOM_SEED[CurScaleIndex][1]
       endY = this.Option.height - WindowSizeOptions.padding.top - WindowSizeOptions.padding.bottom - (this.Position[1][1] - this.Option['yAxis'].Min) * this.Option['yAxis'].unitPricePx + WindowSizeOptions.padding.top
     } else {
-      endX = x
+      var index = Math.ceil(x / (ZOOM_SEED[CurScaleIndex][1] + ZOOM_SEED[CurScaleIndex][0])) + LeftDatasIndex
+      endX = (ZOOM_SEED[CurScaleIndex][0] + ZOOM_SEED[CurScaleIndex][1]) * (index - LeftDatasIndex) - ZOOM_SEED[CurScaleIndex][0] / 2 - ZOOM_SEED[CurScaleIndex][1]
       endY = y
     }
     this.ClipFrame()
@@ -1396,6 +1553,9 @@ var WindowSizeOptions = {
   chartContainerHeight: 0,
   xAxisContainerHeight: 28,
   yAxisContainerWidth: 60,
+  drawToolOptDialogWidth: 230,
+  chartLeft: 0,
+  chartTop: 0,
   chartScale: 2.3, // K线图表和指标图表的比例
   padding: {
     'top': 20,
