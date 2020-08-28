@@ -17,6 +17,7 @@
   <script src="./static/js/jquery.min.js"></script>
   <script src="./gotopchart.js"></script>
   <script src="./indicators/indicatorFormula.js"></script>
+  <script src="https://cdn.bootcss.com/FileSaver.js/2014-11-29/FileSaver.js"></script>
 
   <div id="kline" style="width: 900px;height:400px;"></div>
   <script>
@@ -24,16 +25,58 @@
       this.chartDiv = div
       this.chart = GoTopChart.Init(div)
       this.option = {
-        symbol: 'BTC/USDT',
-        isOnline: false,
+        'xAxis': {
+          'width': 0,
+          'height': 0,
+          'position': {
+            'left': 0,
+            'top': 0
+          },
+        },
         kLine: {
-          Period: 1,
-          indicators: {
-
+          'symbol': 'BTC/USDT',
+          'isOnline': false,
+          'name': 'kLine',
+          'width': 0,
+          'height': 0,
+          'position': {
+            'left': 0,
+            'top': 0
+          },
+          'indicator': {},
+          'yAxis': {
+            'width': 0,
+            'height': 0,
+            'position': {
+              'left': 0,
+              'top': 0
+            },
+            'isRight': true
           }
         },
-        indicators: {
-          'macd': {
+        'macd': {
+          'name': 'MACD',
+          width: 0,
+          height: 0,
+          position: {
+            top: 0,
+            left: 0
+          },
+          yAxis: {
+            width: 0,
+            height: 0,
+            position: {
+              top: 0,
+              left: 0
+            },
+          },
+          'style': {
+            'DIFF': '#0094ff',
+            'DEA': '#ff6a00',
+            'MACD': {
+              'up': '#26a69a',
+              'down': '#ef5350'
+            }
           }
         }
       }
