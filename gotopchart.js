@@ -19,10 +19,11 @@ function GoTopChart (divElement) {
   this.RightElement.appendChild(this.ChartElement)
 
   this.KLineDatasFix = new KLineDatasFix()
-  this.IndicatorDatasFix = new IndicatorDatasFix()
   this.Cursor = new CrossCursor()
   this.DrawToolObjOptDialog = new DrawToolObjOptDialog()
+  this.PeriodDialog = new PeriodDialog()
   this.ChartElement.appendChild(this.DrawToolObjOptDialog.Create())
+  this.ChartElement.appendChild(this.PeriodDialog.Create())
 
   this.TitleToolList = []
   this.DrawToolList = []
@@ -94,7 +95,7 @@ function GoTopChart (divElement) {
     WindowSizeOptions.chartContainerHeight = WindowSizeOptions.height - WindowSizeOptions.topToolContainerHeight - g_ThemeResource.BorderWidth[0]
 
     this.WindowFrame.onSetSize(WindowSizeOptions.chartContainerWidth, WindowSizeOptions.chartContainerHeight)
-
+    this.PeriodDialog.SetPeriodElement()
     KNum = Math.ceil((WindowSizeOptions.chartContainerWidth - WindowSizeOptions.yAxisContainerWidth) / (ZOOM_SEED[CurScaleIndex][0] + ZOOM_SEED[CurScaleIndex][1]))
   }
 
@@ -109,30 +110,9 @@ function GoTopChart (divElement) {
     this.WindowFrame.onSetOptions(option)
 
     this.WindowFrame.onSetFrameList(WindowSizeOptions.chartContainerWidth, WindowSizeOptions.chartContainerHeight)
-    this.GetData()
+    this.KLineDatasFix.GetData(option)
     this.KLineDatasFix.SplitDatas()
-    for (let i in this.Options) {
-      if (i != 'xAxis' && i != 'kLine') {
-        this.IndicatorDatasFix.SplitDatas(i)
-      }
-    }
     this.Draw()
-  }
-
-  /**
-   * @description 刚开始进来要进行数据的获取，K线数据获取和指标数据获取
-   */
-  this.GetData = function () {
-    if (!chartDatas.Datas) {
-      chartDatas.Request()
-      KLineDatas = chartDatas.Datas
-      CurDataOffset = KLineDatas.length - 1
-    }
-    this.IndicatorDatasFix.SetDatas(chartDatas.Datas)
-    for (let i in this.Options) {
-      if (i == 'xAxis' || i == 'kLine' || (this.IndicatorDatasFix.OIndicators[i] && this.IndicatorDatasFix.OIndicators[i].datas)) continue
-      this.IndicatorDatasFix.CalculationIndicator(i)
-    }
   }
 
   this.Draw = function () {
@@ -167,21 +147,21 @@ function GoTopChart (divElement) {
           break;
         case 'macd':
           var yAxis = new YAxis()
-          yAxis.Create(this.WindowFrame.Canvas, this.WindowFrame.OptCanvas, this.IndicatorDatasFix.Indicators[key].datas, this.WindowFrame.FrameList[key]['yAxis'], key, 8)
+          yAxis.Create(this.WindowFrame.Canvas, this.WindowFrame.OptCanvas, this.KLineDatasFix.IndicatorDatasFix.Indicators[key].datas, this.WindowFrame.FrameList[key]['yAxis'], key, 8)
           this.WindowFrame.FrameList[key]['yAxis']['Min'] = yAxis.Min
           this.WindowFrame.FrameList[key]['yAxis']['Max'] = yAxis.Max
           this.WindowFrame.FrameList[key]['yAxis']['unitPricePx'] = yAxis.UnitPricePx
           var macd = new MACD()
-          macd.Create(this.WindowFrame.Canvas, this.WindowFrame.FrameList[key], this.IndicatorDatasFix.Indicators[key].datas)
+          macd.Create(this.WindowFrame.Canvas, this.WindowFrame.FrameList[key], this.KLineDatasFix.IndicatorDatasFix.Indicators[key].datas)
           macd.Draw()
           var titleTool = new TitleToolContainer()
           var titleToolElement = titleTool.Create(this.WindowFrame.FrameList[key], key)
           this.ChartElement.appendChild(titleToolElement)
           titleTool.CreateValueBox()
           var curValue = {
-            'MACD': this.IndicatorDatasFix.Indicators[key].datas[this.IndicatorDatasFix.Indicators[key].datas.length - 1]['MACD'],
-            'DEA': this.IndicatorDatasFix.Indicators[key].datas[this.IndicatorDatasFix.Indicators[key].datas.length - 1]['DEA'],
-            'DIFF': this.IndicatorDatasFix.Indicators[key].datas[this.IndicatorDatasFix.Indicators[key].datas.length - 1]['DIFF'],
+            'MACD': this.KLineDatasFix.IndicatorDatasFix.Indicators[key].datas[this.KLineDatasFix.IndicatorDatasFix.Indicators[key].datas.length - 1]['MACD'],
+            'DEA': this.KLineDatasFix.IndicatorDatasFix.Indicators[key].datas[this.KLineDatasFix.IndicatorDatasFix.Indicators[key].datas.length - 1]['DEA'],
+            'DIFF': this.KLineDatasFix.IndicatorDatasFix.Indicators[key].datas[this.KLineDatasFix.IndicatorDatasFix.Indicators[key].datas.length - 1]['DIFF'],
           }
           titleTool.SetValue(curValue)
           this.TitleToolList.push(titleTool)
@@ -247,9 +227,7 @@ function GoTopChart (divElement) {
   }
 
   this.ChartElement.onmousemove = function (e) {
-    if (isLoadData) {
-      return
-    }
+    if (isLoadData) return
     if (!self.DrawToolObjOptDialog.isHide) return
     if ((e.offsetY) * pixelTatio < WindowSizeOptions.chartContainerHeight - WindowSizeOptions.xAxisContainerHeight && (e.offsetX) * pixelTatio < WindowSizeOptions.chartContainerWidth - WindowSizeOptions.yAxisContainerWidth) {
       self.WindowFrame.OptCanvas.clearRect(0, 0, WindowSizeOptions.chartContainerWidth, WindowSizeOptions.chartContainerHeight)
@@ -288,9 +266,9 @@ function GoTopChart (divElement) {
             self.TitleToolList[i].SetValue(curValue, isUp)
           } else if (self.TitleToolList[i].Option.name == 'MACD') {
             var curValue = {
-              'MACD': self.IndicatorDatasFix.Indicators['macd'].datas[kn]['MACD'],
-              'DEA': self.IndicatorDatasFix.Indicators['macd'].datas[kn]['DEA'],
-              'DIFF': self.IndicatorDatasFix.Indicators['macd'].datas[kn]['DIFF'],
+              'MACD': self.KLineDatasFix.IndicatorDatasFix.Indicators['macd'].datas[kn]['MACD'],
+              'DEA': self.KLineDatasFix.IndicatorDatasFix.Indicators['macd'].datas[kn]['DEA'],
+              'DIFF': self.KLineDatasFix.IndicatorDatasFix.Indicators['macd'].datas[kn]['DIFF'],
             }
             self.TitleToolList[i].SetValue(curValue, isUp)
           }
@@ -299,12 +277,10 @@ function GoTopChart (divElement) {
       // 数据拖动
       if (self.Status == 0 && self.Drag == true && curSelectDrawToolIndex == null) {
         let moveStep = Math.abs(drag.lastMove.X - e.offsetX)
-        if (moveStep > 5) {
-          let isLeft = true
-          if (drag.lastMove.X < e.offsetX) isLeft = false
-          if (self.KLineDatasFix.MoveDatas(moveStep, isLeft)) {
-            self.SetOption(self.Options)
-          }
+        let isLeft = true
+        if (drag.lastMove.X < e.offsetX) isLeft = false
+        if (self.KLineDatasFix.MoveDatas(moveStep, isLeft)) {
+          self.SetOption(self.Options)
         }
         drag.lastMove.X = e.offsetX
         drag.lastMove.Y = e.offsetY
@@ -463,6 +439,7 @@ function WindowFrame () {
   this.CanvasElement
   this.OptCanvasElement
   this.ChartElement
+  this.LoadElement // 数据加载的元素
 
   this.Width
   this.Height
@@ -478,8 +455,20 @@ function WindowFrame () {
     this.OptCanvasElement.className = "jschart-opt-drawing"
     this.Canvas = this.CanvasElement.getContext('2d')
     this.OptCanvas = this.OptCanvasElement.getContext('2d')
+    this.LoadElement = document.createElement('div')
+    this.LoadElement.className = "load-ele"
+    this.LoadElement.id = "load-ele"
+    this.LoadElement.style.display = "none"
+    var span = document.createElement('span')
+    span.className = "iconfont icon-jiazai load-icon animationSlow"
+    span.style.fontSize = "50px"
+
+
+    this.LoadElement.appendChild(span)
+    this.ChartElement.appendChild(this.LoadElement)
     this.ChartElement.appendChild(this.CanvasElement)
     this.ChartElement.appendChild(this.OptCanvasElement)
+
     return this.ChartElement
   }
 
@@ -539,6 +528,8 @@ function WindowFrame () {
     this.Height = height
     this.ChartElement.style.height = height + 'px'
     this.ChartElement.style.width = width + 'px'
+    this.LoadElement.style.height = height + 'px'
+    this.LoadElement.style.width = width + 'px'
     if (this.CanvasElement && this.OptCanvasElement) {
       this.CanvasElement.style.width = width + 'px'
       this.CanvasElement.style.height = height + 'px'
@@ -1203,11 +1194,25 @@ function KLineDatasFix () {
   this.PeriodDatasMap
   this.ChartDatas = new ChartDatas()
   this.StepPixel = 4 // 移动多少个像素为一单元
+  this.IndicatorDatasFix = new IndicatorDatasFix // 指标数据处理
+  this.Options
+  this.LoadStatus = 0 // 0 初始化、1 加载新数据，2 加载旧数据
   this.MetaLabelLists = [
     CONDITION_PERIOD.KLINE_MINUTE_ID,
     CONDITION_PERIOD.KLINE_60_MINUTE_ID,
     CONDITION_PERIOD.KLINE_DAY_ID
   ]
+
+  this.GetData = function (options) {
+    if (chartDatas.Datas) {
+      return
+    }
+    this.Options = options
+    chartDatas.Request()
+    KLineDatas = chartDatas.Datas
+    CurDataOffset = KLineDatas.length - 1
+    self.GetIndicatorData()
+  }
   /**
    * 
    * @param {新获取的数据} datas 
@@ -1248,18 +1253,16 @@ function KLineDatasFix () {
 
   var self = this
   this.MoveDatas = function (step, isLeft) {
-    if (isLoadData) {
-      return
-    }
     step = Math.ceil(8 / ZOOM_SEED[CurScaleIndex][0])
     if (isLeft) {
       if (Mode == 0 || Mode == 2) {
         if (CurDataOffset > chartDatas.Datas.length - 1) {
-          isLoadData = true
+          self.LoadStatus = 1
           chartDatas.LoadNewDatas('new', res => {
-            console.log('数据更新')
-            isLoadData = false
-            self.MoveDatas(0, true)
+            setTimeout(function () {
+              self.GetIndicatorData()
+              noLoadData()
+            }, 2500)
           })
         } else {
           CurDataOffset += step
@@ -1270,25 +1273,24 @@ function KLineDatasFix () {
       }
       return true
     } else {
+      console.log(LeftDatasIndex)
       if (LeftDatasIndex <= 0) {
-        isLoadData = true
+        self.LoadStatus = 2
         chartDatas.LoadNewDatas('more', res => {
-          console.log('数据加载更多')
           setTimeout(function () {
-            isLoadData = false
-            self.MoveDatas(0, false)
+            self.GetIndicatorData()
+            noLoadData()
           }, 2500)
         })
       } else {
         LeftDatasIndex -= step
         if (LeftDatasIndex < 0) {
           LeftDatasIndex += step
-          isLoadData = true
+          self.LoadStatus = 2
           chartDatas.LoadNewDatas('more', res => {
-            console.log('数据加载更多')
             setTimeout(function () {
-              isLoadData = false
-              self.MoveDatas(0, false)
+              self.GetIndicatorData()
+              noLoadData()
             }, 2500)
           })
         } else {
@@ -1306,6 +1308,11 @@ function KLineDatasFix () {
       LeftDatasIndex = 0
     }
     KLineDatas = chartDatas.Datas.slice(LeftDatasIndex, CurDataOffset == chartDatas.Datas.length - 1 ? -1 : CurDataOffset)
+    for (let i in this.Options) {
+      if (i != 'xAxis' && i != 'kLine') {
+        this.IndicatorDatasFix.SplitDatas(i)
+      }
+    }
   }
 
   this.ScaleKLine = function (e) {
@@ -1325,25 +1332,52 @@ function KLineDatasFix () {
     KNum = Math.ceil((WindowSizeOptions.chartContainerWidth - WindowSizeOptions.yAxisContainerWidth) / (ZOOM_SEED[CurScaleIndex][0] + ZOOM_SEED[CurScaleIndex][1]))
     return true
   }
+
+  this.GetIndicatorData = function () {
+    for (let i in this.Options) {
+      if (i != 'xAxis' && i != 'kLine') {
+        if (this.IndicatorDatasFix.OIndicators[i]) {
+          // 有原数据
+          this.IndicatorDatasFix.CalculationIndicator(i, this.LoadStatus)
+        } else {
+          // 无原数据
+          this.IndicatorDatasFix.CalculationIndicator(i, this.LoadStatus)
+        }
+      }
+    }
+  }
+
 }
 
 function IndicatorDatasFix () {
   this.Indicators = {}
   this.OIndicators = {}
-  this.Datas
 
-  this.SetDatas = function (datas) {
-    this.Datas = datas
-  }
-
-  this.CalculationIndicator = function (indicatorName) {
+  this.CalculationIndicator = function (indicatorName, loadStatus) {
     var c = hxc3.IndicatorFormula.getClass(indicatorName);
     var indicator = new c();
-    var iDatas = indicator.calculate(this.Datas);
+    var refresh = true
     if (!this.OIndicators[indicatorName]) {
       this.OIndicators[indicatorName] = {}
+    } else {
+      if (this.OIndicators[indicatorName].datas.length < chartDatas.Datas.length) {
+        refresh = false
+      }
     }
-    this.OIndicators[indicatorName].datas = iDatas
+    if (refresh) {
+      // 指标数据初始化
+      var iDatas = indicator.calculate(chartDatas.Datas);
+      this.OIndicators[indicatorName].datas = iDatas
+    } else {
+      // 加载更多指标数据
+      if (loadStatus == 1) {
+        var iDatas = indicator.calculate(chartDatas.Datas.slice(chartDatas.Datas.length - 1 - Limit * 2, -1));
+        this.OIndicators[indicatorName].datas = this.OIndicators[indicatorName].datas.concat(iDatas.slice(Limit - 1, -1))
+      } else if (loadStatus == 2) {
+        var iDatas = indicator.calculate(chartDatas.Datas.slice(0, Limit * 2));
+        this.OIndicators[indicatorName].datas = this.OIndicators[indicatorName].datas.concat(iDatas.slice(0, Limit))
+      }
+    }
   }
 
   this.SplitDatas = function (indicatorName) {
@@ -1555,6 +1589,101 @@ function DrawToolObjOptDialog () {
   }
 
 
+}
+
+function PeriodDialog () {
+  this.DivElement
+  this.CurSelectPeriod = CONDITION_PERIOD.KLINE_MINUTE_ID
+  this.PeriodList = {
+    'min': [
+      {
+        'text': '1 分钟',
+        'ID': CONDITION_PERIOD.KLINE_MINUTE_ID
+      },
+      {
+        'text': '5 分钟',
+        'ID': CONDITION_PERIOD.KLINE_5_MINUTE_ID
+      },
+      {
+        'text': '15 分钟',
+        'ID': CONDITION_PERIOD.KLINE_15_MINUTE_ID
+      },
+      {
+        'text': '30 分钟',
+        'ID': CONDITION_PERIOD.KLINE_30_MINUTE_ID
+      }
+    ],
+    'hour': [
+      {
+        'text': '1 小时',
+        'ID': CONDITION_PERIOD.KLINE_60_MINUTE_ID
+      },
+    ],
+    'day': [
+      {
+        'text': '1 日',
+        'ID': CONDITION_PERIOD.KLINE_DAY_ID
+      },
+      {
+        'text': '1 周',
+        'ID': CONDITION_PERIOD.KLINE_WEEK_ID
+      },
+      {
+        'text': '1 月',
+        'ID': CONDITION_PERIOD.KLINE_MONTH_ID
+      }
+    ]
+  }
+
+  this.Create = function () {
+    this.DivElement = document.createElement('div')
+    this.DivElement.className = 'period-dialog'
+    this.DivElement.innerHTML =
+      '<div id="period-dialog_min_box" ><div class="period-item" style="width:100%;height:32px;line-height:32px;color:#787b86;font-size:12px">分</div></div>\n' +
+      '<div id="period-dialog_hour_box" style="border-top:1px solid #787b86"><div class="period-item" style="width:100%;height:32px;line-height:32px;color:#787b86;font-size:12px">小时</div></div>\n' +
+      '<div id="period-dialog_day_box" style="border-top:1px solid #787b86"><div class="period-item" style="width:100%;height:32px;line-height:32px;color:#787b86;font-size:12px">天</div></div>'
+    return this.DivElement
+  }
+
+  this.SetPeriodElement = function () {
+    for (let i in this.PeriodList) {
+      var div
+      if (i == 'min') {
+        div = document.getElementById('period-dialog_min_box')
+      } else if (i == 'hour') {
+        div = document.getElementById('period-dialog_hour_box')
+      } else if (i == 'day') {
+        div = document.getElementById('period-dialog_day_box')
+      }
+      for (let j in this.PeriodList[i]) {
+        var items = document.createElement('div')
+        items.id = this.PeriodList[i][j].ID
+        items.innerHTML = this.PeriodList[i][j].text
+        items.className = "period-item"
+        items.style.fontSize = '14px'
+        items.style.color = '#d1d4dc'
+        if (this.CurSelectPeriod == this.PeriodList[i][j].ID) {
+          items.style.background = '#1976d2'
+          items.style.color = '#ffffff'
+        }
+        div.appendChild(items)
+      }
+    }
+    this.DivElement.style.left = WindowSizeOptions.chartContainerWidth / 2 - 50 + 'px'
+    this.DivElement.style.top = WindowSizeOptions.chartContainerHeight / 2 - this.DivElement.offsetHeight / 2 + 'px'
+  }
+
+
+
+  this.RegisterClickEvent = function (callback) {
+    for (let i in this.PeriodList) {
+      for (let item in this.PeriodList[i]) {
+        $('#' + item.ID).click(function (res) {
+          callback(res)
+        })
+      }
+    }
+  }
 }
 
 function LineElement () {
@@ -1912,7 +2041,7 @@ function ChartDatas () {
   this.Datas
   this.Period
   this.Mode = 0 //0 离线、1 在线、2 限定
-  this.Limit = 100 // 每次加载100行数据
+
   this.isRefresh = true
   this.LeftIndex
   this.RightIndex
@@ -1924,22 +2053,26 @@ function ChartDatas () {
    * @param {周期}} period 
    */
   this.Request = function () {
-    this.RightIndex = kLines.length - 1
+    this.RightIndex = kLines.length - 1 - 200
     this.LeftIndex = this.RightIndex - 2000
-    this.Datas = kLines.slice(this.LeftIndex, this.RightIndex)
+    this.Datas = kLines.slice(this.LeftIndex, this.RightIndex + 1)
   }
   this.LoadNewDatas = function (type, callback) {
     if (type == 'more') {
-      this.LeftIndex -= 100
-      this.Datas = kLines.slice(this.LeftIndex, this.RightIndex)
-      console.log(this.Datas)
-      // for (let i in newData) {
-      //   this.Datas.slice(0, 0, newData[i])
-      // }
+      loadData()
+      this.LeftIndex -= Limit
+      this.Datas = kLines.slice(this.LeftIndex, this.RightIndex + 1)
+      CurDataOffset += Limit
+      LeftDatasIndex += Limit
     } else if (type == 'new') {
-      this.RightIndex += 100
-      this.Datas = kLines.slice(this.LeftIndex, this.RightIndex)
-      console.log(this.Datas)
+      loadData()
+      // console.time('Array initialize')
+      var newData = kLines.slice(this.RightIndex, this.RightIndex + Limit + 1)
+      this.Datas = this.Datas.concat(newData)
+      this.RightIndex += Limit
+
+      // this.Datas = kLines.slice(this.LeftIndex, this.RightIndex)
+      // console.timeEnd('Array initialize')
     }
     callback()
   }
@@ -1958,6 +2091,15 @@ function saveJsonToFile (oData, fileName) {
   saveAs(blob, fileName + '.json');
 }
 
+function loadData () {
+  isLoadData = true
+  $('#load-ele').css('display', 'flex')
+}
+
+function noLoadData () {
+  isLoadData = false
+  $('#load-ele').css('display', 'none')
+}
 
 
 ChartDatas.Init = function () {
@@ -1972,6 +2114,7 @@ var LeftDatasIndex = 0
 var KNum // 一屏可容纳的K线数量
 var Mode = 0 // 0 离线、1 在线、2 限定
 var isLoadData = false
+var Limit = 100 // 每次加载100行数据
 var g_ThemeResource = new ThemeSettingsDialog()
 
 var pixelTatio = GetDevicePixelRatio();
