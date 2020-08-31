@@ -1,0 +1,93 @@
+<!DOCTYPE html PUBLIC" -//W3C//DTD XHTML 1.0 Transitional//EN""http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html>
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=1.0,
+        maximum-scale=1.0, user-scalable=no" />
+  <title>页面行情(K线图)</title>
+  <!-- 加载资源 -->
+  <link rel="stylesheet" href="static/css/main.css" />
+  <link rel="stylesheet" href="static/css/icons.css" />
+</head>
+
+<body>
+  <script src="./datas/datas.js"></script>
+  <script src="./static/js/jquery.min.js"></script>
+  <script src="./gotopchart.js"></script>
+  <script src="./indicators/indicatorFormula.js"></script>
+  <script src="https://cdn.bootcss.com/FileSaver.js/2014-11-29/FileSaver.js"></script>
+
+  <div id="kline" style="width: 900px;height:400px;position: relative;"></div>
+  <script>
+    var symbol = 'BNB/USDT'
+    var model = 1 // 0 离线、1 在线
+    var divKline = document.getElementById('kline')
+    var chart = GoTopChart.Init(divKline)
+
+    $(window).resize(resizeCanvas)
+
+    function resizeCanvas() {
+      var height = $(window).height()
+      var width = $(window).width()
+
+      divKline.style.top = 0 + 'px'
+      divKline.style.left = 0 + 'px'
+      divKline.style.width = (width) + 'px';
+      divKline.style.height = (height) + 'px';
+      chart.OnSize();
+    }
+
+    $(function () {
+      var height = $(window).height()
+      var width = $(window).width()
+
+      divKline.style.width = (width) + 'px';
+      divKline.style.height = (height) + 'px';
+      chart.OnSize();
+
+      var options = {
+        Window:
+          [
+            {
+              Index: 'MACD',
+              Params: {
+                FastLength: 12,
+                SlowLength: 26
+              },
+              Key: ['DIFF', 'DEA', 'MACD'],
+              Style: {
+                DIFF: '#0094ff',
+                DEA: '#ff6a00',
+                MACD: {
+                  UP: '#26a69a',
+                  DOWN: '#ef5350'
+                }
+              }
+            }
+          ],
+
+        Symbol: symbol,
+        Mode: mode,
+
+        KLine:
+        {
+          Period: 0,
+          MaxRequestDataCount: 1000,
+        },
+
+        Border:
+        {
+          Left: 5,
+          Right: 5,
+          Bottom: 5,
+          Top: 5
+        }
+      }
+
+      chart.SetOption(option)
+    })
+  </script>
+</body>
+
+</html>
