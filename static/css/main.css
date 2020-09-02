@@ -27,6 +27,12 @@ ol li {
   box-sizing: border-box;
 }
 
+.chart-container {
+  position: relative;
+  box-sizing: border-box;
+  background: #2c3450;
+}
+
 .jschart-drawing {
   position: absolute;
   z-index: 1;

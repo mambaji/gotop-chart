@@ -15,13 +15,14 @@
   <script src="./datas/datas.js"></script>
   <script src="./static/js/jquery.min.js"></script>
   <script src="./gotopchart.js"></script>
+  <script src="./gotopchart.network.js"></script>
   <script src="./indicators/indicatorFormula.js"></script>
   <script src="https://cdn.bootcss.com/FileSaver.js/2014-11-29/FileSaver.js"></script>
 
   <div id="kline" style="width: 900px;height:400px;position: relative;"></div>
   <script>
     var symbol = 'BNB/USDT'
-    var model = 1 // 0 离线、1 在线
+    var mode = 1 // 0 离线、1 在线
     var divKline = document.getElementById('kline')
     var chart = GoTopChart.Init(divKline)
 
@@ -72,7 +73,7 @@
 
         KLine:
         {
-          Period: 0,
+          Period: "1m",
           MaxRequestDataCount: 1000,
         },
 
@@ -85,7 +86,7 @@
         }
       }
 
-      chart.SetOption(option)
+      chart.SetOption(options)
     })
   </script>
 </body>

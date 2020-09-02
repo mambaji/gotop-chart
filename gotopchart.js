@@ -1,11 +1,12 @@
 
 function GoTopChart (element) {
   this.DivElement = element
+  this.DivElement.className = "main-div"
+
+  this.RightElement = document.createElement('div')
 
   this.ChartElement = document.createElement('div')
   this.ChartElement.className = 'chart-container'
-
-  this.RightElement = document.createElement('div')
 
   this.TopToolContainer = new TopToolContainer()
   this.LeftToolContainer = new LeftToolContainer()
@@ -15,38 +16,45 @@ function GoTopChart (element) {
 
   this.RightElement.appendChild(this.TopToolContainer.Create())
   this.RightElement.appendChild(this.ChartElement)
-  this.ChartElement.appendChild(this.LoadElement)
 
-  this.ChartSize = new ChartSize()
+  ChartSize.getInstance() = new ChartSize()
 
   this.Options
 
+  this.OnSize = function () {
+    ChartSize.getInstance().TotalHeight = parseInt(this.DivElement.style.height.replace("px", ""))
+    ChartSize.getInstance().TotalWidth = parseInt(this.DivElement.style.width.replace("px", ""))
 
+    this.RightElement.style.width = ChartSize.getInstance().TotalWidth - ChartSize.getInstance().LeftToolWidthPx - g_GoTopChartResource.BorderWidth[0] + 'px'
+    this.RightElement.style.height = ChartSize.getInstance().TotalHeight + 'px'
 
-  this.SetSize = function () {
-    this.ChartSize.TotalHeight = parseInt(this.DivElement.style.height.replace("px", ""))
-    this.ChartSize.TotalWidth = parseInt(this.DivElement.style.width.replace("px", ""))
+    this.TopToolContainer.SetWidth(this.RightElement.style.width)
+    this.LeftToolContainer.SetHeight(this.RightElement.style.height)
 
-    this.RightElement.style.width = this.ChartSize.TotalWidth - this.ChartSize.LeftToolWidthPx - g_GoTopChartResource.BorderWidth[0] + 'px'
-    this.RightElement.style.height = this.ChartSize.TotalHeight + 'px'
-    this.TopToolElement.style.width = this.RightElement.style.width
-    this.LeftToolElement.style.height = this.RightElement.style.height
-
-    this.ChartSize.ChartContentWidth = parseInt(this.RightElement.style.width.replace('px', ''))
-    this.ChartSize.ChartContentHeight = parseInt(this.RightElement.style.height.replace('px', ''))
+    ChartSize.getInstance().ChartContentWidth = parseInt(this.RightElement.style.width.replace('px', ''))
+    ChartSize.getInstance().ChartContentHeight = parseInt(this.RightElement.style.height.replace('px', '')) - ChartSize.getInstance().TopToolHeightPx - g_GoTopChartResource.BorderWidth[0]
   }
 
   this.SetOption = function (options) {
     this.Options = options
-
+    this.Draw()
   }
 
   this.Draw = function () {
     var chart = new GoTopChartComponent()
-    chart.ChartSize = this.ChartSize
+    chart.ChartSize = ChartSize.getInstance()
     chart.Options = this.Options
     chart.ChartElement = this.ChartElement
+
     chart.CreateElement()
+    chart.SetSize()
+    chart.SetFrameOption()
+    chart.SetChartFrameList()
+    // 数据请求后进行回调
+    chart.RequestNewData(ChartData.getInstance().Period, function (res) {
+      chart.Loaded()
+      chart.Draw()
+    })
   }
 
   this.LeftToolContainer.RegisterClickEvent(function (e) {
@@ -69,35 +77,43 @@ GoTopChart.Init = function (element) {
 //
 ////////////////////////////////////////////
 function GoTopChartComponent () {
-  this.ChartData
-  this.ChartSize
+  this.ChartData = ChartData.getInstance()
   this.Options
   this.XOption = {}         // X轴的配置，一个图标库中只有一个X轴，所以独立出来
   this.KLineOption = {}     // K线图表的配置
+  this.IndicatorDataList = {}          // 存放指标数据的list，如果指标窗口删除，则删除指定的指标
 
-  this.ChartFramePaintingList = new Array()     // 存放图表 所有框架
-  this.FrameList = new Array()
-  this.DrawPictureList = new Array()
-  this.CrossCursor = new CrossCursor()
+  this.ChartFramePaintingList = new Array()     // 存放图表框架绘制对象
+  this.FrameList = new Array()                  // 存放图表框架
+  this.DrawPictureList = new Array()            // 存放画图对象
+  this.IndicatorList = new Array()              // 存放使用的指标名称
 
+  this.CrossCursor = new CrossCursor()          // 光标
+
+
+  // canvas
   this.ChartElement
-  this.Canvas
-  this.OptCanvas
-  this.CanvasElement
-  this.OptCanvasElement
+  this.CanvasElement = document.createElement('canvas')
+  this.CanvasElement.className = "jschart-drawing"
+  this.OptCanvasElement = document.createElement('canvas')
+  this.OptCanvasElement.className = "jschart-opt-drawing"
+  this.Canvas = this.CanvasElement.getContext('2d')
+  this.OptCanvas = this.OptCanvasElement.getContext('2d')
 
-  this.Mode
-  this.Period
+  this.XAxis
 
+  this.DataOffSet             // 当前数据偏移量：右游标
+  this.ScreenKNum             //一屏显示多少跟K线
+  this.Mode                   // 模式：0 离线、1 在线（实时获取数据）
+  this.IsLoadData = false     //判断是否加载数据中，如果是则不允许任何图表触摸操作
+
+
+  this.KLinesUrl = g_GoTopChartResource.Domain + '/api/v3/klines'
+
+  var self = this
 
   this.CreateElement = function () {
-    // canvas
-    this.CanvasElement = document.createElement('canvas')
-    this.CanvasElement.className = "jschart-drawing"
-    this.OptCanvasElement = document.createElement('canvas')
-    this.OptCanvasElement.className = "jschart-opt-drawing"
-    this.Canvas = this.CanvasElement.getContext('2d')
-    this.OptCanvas = this.OptCanvasElement.getContext('2d')
+
     // 加载loading element
     this.LoadElement = document.createElement('div')
     this.LoadElement.className = "load-ele"
@@ -111,11 +127,13 @@ function GoTopChartComponent () {
     this.ChartElement.appendChild(this.LoadElement)
     this.ChartElement.appendChild(this.CanvasElement)
     this.ChartElement.appendChild(this.OptCanvasElement)
+
+
   }
 
   this.SetSize = function () {
-    const width = this.ChartSize.ChartContentWidth
-    const height = this.ChartSize.ChartContentHeight
+    const width = ChartSize.getInstance().ChartContentWidth
+    const height = ChartSize.getInstance().ChartContentHeight
 
     this.ChartElement.style.height = height + 'px'
     this.ChartElement.style.width = width + 'px'
@@ -137,27 +155,29 @@ function GoTopChartComponent () {
   }
 
   this.SetFrameOption = function () {
+    // period
+    ChartData.getInstance().Period = this.Options.KLine.Period
     // xAxis
-    this.XOption.height = this.ChartSize.XAxisHeight
-    this.XOption.width = this.ChartSize.ChartContentWidth - this.ChartSize.YAxisWidth
+    this.XOption.height = ChartSize.getInstance().XAxisHeight
+    this.XOption.width = ChartSize.getInstance().ChartContentWidth - ChartSize.getInstance().YAxisWidth
     this.XOption.position = {}
     this.XOption.position.left = 0
-    this.XOption.position.top = this.ChartSize.ChartContentHeight - this.ChartSize.XAxisHeight
+    this.XOption.position.top = ChartSize.getInstance().ChartContentHeight - ChartSize.getInstance().XAxisHeight
 
-    const ch = this.ChartSize.ChartContentHeight - this.ChartSize.XAxisHeight
-    const cw = this.ChartSize.ChartContentWidth - this.ChartSize.YAxisWidth
-    const sch = ch / (this.Options.Window.length + this.ChartSize.ChartScale)
+    const ch = ChartSize.getInstance().ChartContentHeight - ChartSize.getInstance().XAxisHeight
+    const cw = ChartSize.getInstance().ChartContentWidth - ChartSize.getInstance().YAxisWidth
+    const sch = ch / (this.Options.Window.length + ChartSize.getInstance().ChartScale)
     // kline
     this.KLineOption.name = 'kLine'
     this.KLineOption.symbol = this.Options.Symbol
     this.KLineOption.width = cw
-    this.KLineOption.height = this.ChartSize.ChartScale * sch
+    this.KLineOption.height = ChartSize.getInstance().ChartScale * sch
     this.KLineOption.position = {
       left: 0,
       top: 0
     }
     this.KLineOption.yAxis = {
-      width: this.ChartSize.YAxisWidth,
+      width: ChartSize.getInstance().YAxisWidth,
       height: this.KLineOption.height,
       position: {
         left: cw,
@@ -180,7 +200,7 @@ function GoTopChartComponent () {
           top: ict
         },
         yAxis: {
-          width: this.ChartSize.YAxisWidth,
+          width: ChartSize.getInstance().YAxisWidth,
           height: sch,
           position: {
             left: cw,
@@ -189,6 +209,7 @@ function GoTopChartComponent () {
         }
       }
       this.FrameList.push(option)
+      this.IndicatorData.push(option.name)
       ict += sch
     }
   }
@@ -197,25 +218,35 @@ function GoTopChartComponent () {
     for (var i in this.FrameList) {
       var chartFramePaint = new ChartFramePainting()
       chartFramePaint.Name = this.FrameList[i].name
+      chartFramePaint.Option = this.FrameList[i]
+      chartFramePaint.ChartData = this.ChartData
+      chartFramePaint.ChartSize = ChartSize.getInstance()
       chartFramePaint.ChartElement = this.ChartElement
+      this.ChartFramePaintingList.push(chartFramePaint)
     }
+  }
+
+  this.Loading = function () {
+    this.IsLoadData = true
+    this.LoadElement.style.display = "flex"
+  }
+
+  this.Loaded = function () {
+    this.IsLoadData = false
+    this.LoadElement.style.display = "none"
   }
 
   this.Draw = function () {
     // xAxis
     var xAxis = new XAxis()
     xAxis.Create(this.Canvas, this.OptCanvas, this.XOption)
+    this.XAxis = xAxis
     // window
+    console.log(this.ChartFramePaintingList)
     for (let i in this.ChartFramePaintingList) {
       switch (this.ChartFramePaintingList[i].Name) {
         case 'kLine':
-          this.ChartFramePaintingList[i].Create()
-          this.ChartFramePaintingList[i].DrawChartFramePaint()
-          this.ChartFramePaintingList[i].DrawChartPaint(function () {
-            var kLine = new KLine()
-            kLine.Create(this.Canvas, this.OptCanvas, this.ChartFramePaintingList[i].Option, this.ChartData.Data)
-          })
-          this.ChartFramePaintingList[i].DrawPicture()
+          this.DrawKLineChart(i)
           break;
         case 'macd':
 
@@ -248,16 +279,156 @@ function GoTopChartComponent () {
 
   }
 
-  this.RequestNewData = function () {
+  this.RequestNewData = function (period, callback, start = 1577808000000, end) {
+    this.Loading()
+    // 判断数据是否存在，不存在则调用接口获取
+    if (ChartData.getInstance().PeriodData[period]
+      && ChartData.getInstance().PeriodData[period].Data.length > 0
+      && start >= ChartData.getInstance().GetStartTimeOfPeriodData()
+      && start <= ChartData.getInstance().GetEndTimeOfPeriodData()) {
 
+      if (end
+        && end >= ChartData.getInstance().GetStartTimeOfPeriodData()
+        && end <= ChartData.getInstance().GetEndTimeOfPeriodData()) {
+        // start 和 end 都存在已有的数据集中
+        callback()
+        return
+      } else {
+        // start 存在 已有数据集中，end 不存在以后数据集中
+        start = ChartData.getInstance().GetEndTimeOfPeriodData()
+      }
+    }
+    JSNetwork.HttpRequest({
+      url: this.KLinesUrl,
+      headers: {
+        // "X-MBX-APIKEY": "gIu5ec7EO6ziqUIyL6btfVSpHVvU77J17p9gQpkMexBL6FI94HBukLRhvB51a2Wz"
+      },
+      data: {
+        "symbol": "BNBUSDT",
+        "interval": "1m",
+        "limit": 1000,
+        "startTime": start,
+        // "endTime": end
+      },
+      type: "get",
+      dataType: "json",
+      async: true,
+      success: function (data) {
+        self.ProcessNewData(data, period, callback)
+      }
+    })
   }
 
   this.RequestRealTimeData = function () {
 
   }
 
-  this.SplitData = function () {
+  this.ProcessNewData = function (data, period, callback) {
+    // 判断是否已有加载的数据
+    var isExist = false
+    if (ChartData.getInstance().PeriodData[period] && ChartData.getInstance().PeriodData[period].Data.length > 0) {
+      isExist = true
+    } else {
+      ChartData.getInstance().PeriodData[period] = {}
+      ChartData.getInstance().PeriodData[period].Data = new Array()
+    }
+    // 对数据进行处理
+    for (let i in data) {
+      var dataItem = new DataObj()
+      dataItem['datetime'] = data[i][0]
+      dataItem['open'] = data[i][1]
+      dataItem['high'] = data[i][2]
+      dataItem['low'] = data[i][3]
+      dataItem['close'] = data[i][4]
+      dataItem['volume'] = data[i][5]
+      dataItem['closetime'] = data[i][6]
 
+      if (i === 0 && isExist) continue
+
+      ChartData.getInstance().PeriodData[period].Data.push(dataItem)
+    }
+    // 数据加载完成 执行回调
+    callback()
+  }
+
+  this.LoadIndicatorData = function () {
+
+  }
+
+  this.RequestNewIndicatorData = function () {
+    for (let i in this.IndicatorList) {
+      if (this.IndicatorDataList[i]            // 该指标是否存在 
+        && this.IndicatorDataList[i].PeriodData[this.IndicatorDataList[i].Period] // 是否存在对应的周期对象
+        && this.IndicatorDataList[i].PeriodData[this.IndicatorDataList[i].Period].Data  // 是否存在对应的周期数据
+      ) {
+
+      }
+    }
+  }
+
+  this.RequestHistoryIndicatorData = function () {
+
+  }
+
+  this.CalculationIndicator = function (indicatorName, kLineData) {
+    var c = hxc3.IndicatorFormula.getClass(indicatorName);
+    var indicator = new c();
+    var iDatas = indicator.calculate(kLineData);
+    return iDatas
+  }
+
+  this.ScaleKLine = function (e) {
+    if (e > 0) {
+      // 放大
+      if (ChartSize.getInstance().CurScaleIndex <= 0) {
+        return false
+      }
+      ChartSize.getInstance().CurScaleIndex--
+    } else {
+      // 缩小
+      if (ChartSize.getInstance().CurScaleIndex >= ZOOM_SEED.length - 1) {
+        return false
+      }
+      ChartSize.getInstance().CurScaleIndex++
+    }
+    this.ScreenKNum =
+      Math.ceil((ChartSize.getInstance().ChartContentWidth - ChartSize.getInstance().YAxisWidth)
+        / (ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0] + ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1]))
+    return true
+  }
+
+  this.MoveData = function (step, isLeft) {
+
+  }
+
+  this.SplitData = function () {
+    // 游标计算
+    var leftDatasIndex = ChartData.getInstance().DataOffSet + 1 - this.ScreenKNum
+    if (leftDatasIndex < 0 && ChartData.getInstance().DataOffSet - leftDatasIndex <= ChartData.getInstance().GetCurPeriodDataLength()) {
+      ChartData.getInstance().DataOffSet -= leftDatasIndex
+      leftDatasIndex = 0
+    }
+    // K线数据
+    ChartData.getInstance().Data = ChartData.getInstance().GetCurPeriodData().slice(leftDatasIndex, ChartData.getInstance().DataOffSet == ChartData.getInstance().GetCurPeriodDataLength() ? -1 : ChartData.getInstance().DataOffSet)
+    // 指标数据
+  }
+
+  this.DrawKLineChart = function (i) {
+    this.ChartFramePaintingList[i].DrawChartFramePaint()
+    this.ChartFramePaintingList[i].DrawChartPaint(function () {
+      var yAxis = new YAxis()
+      yAxis.Create(self.Canvas, self.OptCanvas, ChartData.getInstance().Data, self.ChartFramePaintingList[i].Option.yAxis)
+
+      self.ChartFramePaintingList[i].Option.yAxis.unitPricePx = yAxis.UnitPricePx
+      self.ChartFramePaintingList[i].Option.yAxis.Min = yAxis.Min
+      self.ChartFramePaintingList[i].Option.yAxis.Max = yAxis.Max
+      self.ChartFramePaintingList[i].XAxis = xAxis
+
+      var kLine = new KLine()
+      kLine.Create(self.Canvas, self.OptCanvas, self.ChartFramePaintingList[i].Option, self.ChartData.Data)
+
+    })
+    this.ChartFramePaintingList[i].DrawPicture()
   }
 }
 
@@ -267,6 +438,7 @@ function GoTopChartComponent () {
 //
 ////////////////////////////////////////////
 function ChartSize () {
+  this.Instance = null
   //四周间距
   this.Left = 50;
   this.Right = 80;
@@ -287,6 +459,25 @@ function ChartSize () {
 
   this.TotalHeight
   this.TotalWidth
+
+  var CurScaleIndex = 8
+  var ZOOM_SEED =
+    [
+      [48, 10], [44, 10],
+      [40, 9], [36, 9],
+      [32, 8], [28, 8],
+      [24, 7], [20, 7],
+      [18, 6], [16, 6],
+      [14, 5], [12, 5],
+      [8, 4], [6, 4],
+      [6, 3], [3, 3],
+      [3, 1], [2, 1],
+      [1, 1], [1, 0.5],
+      [1, 0.2], [1, 0.1],
+      [0.8, 0.1], [0.6, 0.1],
+      [0.5, 0.1], [0.4, 0.1],
+      [0.3, 0.1], [0.2, 0.1]
+    ];
 
   this.GetTotalWidth = function () {
     return this.TotalWidth
@@ -333,13 +524,19 @@ function ChartSize () {
   }
 }
 
+ChartSize.getInstance = function () {
+  if (!this.Instance) {
+    this.Instance = new ChartSize()
+  }
+  return this.Instance
+}
+
 ////////////////////////////////////////////
 // 
 //             图形画法
 //
 ////////////////////////////////////////////
 function ChartPainting () {
-  this.ChartSize
   this.Canvas
   this.OptCanvas
   this.Option
@@ -348,7 +545,7 @@ function ChartPainting () {
 
 // K线画法
 function KLine () {
-  this.newMethod = ChartPainting()
+  this.newMethod = ChartPainting
   this.newMethod()
   delete this.newMethod
 
@@ -366,7 +563,7 @@ function KLine () {
     this.Option = option
 
     this.UnitPricePx = this.Option['yAxis']['unitPricePx']
-    this.ValueHeight = this.Option.height - this.ChartSize.GetTop() - this.ChartSize.GetTitleHeight() - this.ChartSize.GetBottom()
+    this.ValueHeight = this.Option.height - ChartSize.getInstance().GetTop() - ChartSize.getInstance().GetTitleHeight() - ChartSize.getInstance().GetBottom()
 
     this.Draw()
   }
@@ -385,28 +582,28 @@ function KLine () {
       this.Canvas.fillStyle = this.UpColor
       this.Canvas.strokeStyle = this.UpColor
       if (ZOOM_SEED[CurScaleIndex][0] > 2) {
-        startY = this.Option.position.top + this.ValueHeight - (close - this.Option['yAxis'].Min) * this.UnitPricePx + this.ChartSize.GetTop() + this.ChartSize.GetTitleHeight()
-        endY = this.ValueHeight - (open - this.Option['yAxis'].Min) * this.UnitPricePx + this.ChartSize.GetTop() + this.ChartSize.GetTitleHeight()
+        startY = this.Option.position.top + this.ValueHeight - (close - this.Option['yAxis'].Min) * this.UnitPricePx + ChartSize.getInstance().GetTop() + ChartSize.getInstance().GetTitleHeight()
+        endY = this.ValueHeight - (open - this.Option['yAxis'].Min) * this.UnitPricePx + ChartSize.getInstance().GetTop() + ChartSize.getInstance().GetTitleHeight()
       }
     } else if (open > close) {
       this.Canvas.fillStyle = this.DownColor
       this.Canvas.strokeStyle = this.DownColor
       if (ZOOM_SEED[CurScaleIndex][0] > 2) {
-        startY = this.Option.position.top + this.ValueHeight - (open - this.Option['yAxis'].Min) * this.UnitPricePx + this.ChartSize.GetTop() + this.ChartSize.GetTitleHeight()
-        endY = this.ValueHeight - (close - this.Option['yAxis'].Min) * this.UnitPricePx + this.ChartSize.GetTop() + this.ChartSize.GetTitleHeight()
+        startY = this.Option.position.top + this.ValueHeight - (open - this.Option['yAxis'].Min) * this.UnitPricePx + ChartSize.getInstance().GetTop() + ChartSize.getInstance().GetTitleHeight()
+        endY = this.ValueHeight - (close - this.Option['yAxis'].Min) * this.UnitPricePx + ChartSize.getInstance().GetTop() + ChartSize.getInstance().GetTitleHeight()
       }
     } else {
       this.Canvas.fillStyle = g_ThemeResource.FontColor
       this.Canvas.strokeStyle = g_ThemeResource.FontColor
-      endY = this.Option.position.top + this.ValueHeight - (open - this.Option['yAxis'].Min) * this.UnitPricePx + this.ChartSize.GetTop() + this.ChartSize.GetTitleHeight()
+      endY = this.Option.position.top + this.ValueHeight - (open - this.Option['yAxis'].Min) * this.UnitPricePx + ChartSize.getInstance().GetTop() + ChartSize.getInstance().GetTitleHeight()
       startY = endY
     }
     startX = this.Option.position.left + WindowSizeOptions.padding.left + (ZOOM_SEED[CurScaleIndex][0] + ZOOM_SEED[CurScaleIndex][1]) * i
     endX = startX + ZOOM_SEED[CurScaleIndex][0]
     let h = endY - startY
     h < 1 && (h = 1)
-    highpx = this.Option.position.top + this.ValueHeight - (high - this.Option['yAxis'].Min) * this.UnitPricePx + this.ChartSize.GetTop() + this.ChartSize.GetTitleHeight()
-    lowpx = this.Option.position.top + this.ValueHeight - (low - this.Option['yAxis'].Min) * this.UnitPricePx + this.ChartSize.GetTop() + this.ChartSize.GetTitleHeight()
+    highpx = this.Option.position.top + this.ValueHeight - (high - this.Option['yAxis'].Min) * this.UnitPricePx + ChartSize.getInstance().GetTop() + ChartSize.getInstance().GetTitleHeight()
+    lowpx = this.Option.position.top + this.ValueHeight - (low - this.Option['yAxis'].Min) * this.UnitPricePx + ChartSize.getInstance().GetTop() + ChartSize.getInstance().GetTitleHeight()
     this.Canvas.lineWidth = 1
     if (ZOOM_SEED[CurScaleIndex][0] > 2) {
       this.Canvas.fillRect(ToFixedRect(startX), ToFixedRect(startY), ToFixedRect(endX - startX), ToFixedRect(h))
@@ -421,7 +618,7 @@ function KLine () {
   this.DrawCloseLine = function () {
     const closePrice = parseFloat(this.Datas[this.Datas.length - 1].close)
     const openPrice = parseFloat(this.Datas[this.Datas.length - 1].open)
-    const y = this.ValueHeight - (closePrice - this.Option['yAxis'].Min) * this.UnitPricePx + this.ChartSize.GetTop() + this.ChartSize.GetTitleHeight()
+    const y = this.ValueHeight - (closePrice - this.Option['yAxis'].Min) * this.UnitPricePx + ChartSize.getInstance().GetTop() + ChartSize.getInstance().GetTitleHeight()
     this.Canvas.beginPath()
     if (closePrice < openPrice) {
       this.Canvas.strokeStyle = this.DownColor
@@ -439,7 +636,7 @@ function KLine () {
     // 绘制Y轴上的标识
     this.Canvas.beginPath()
     this.Canvas.fillStyle = this.Canvas.strokeStyle
-    this.Canvas.fillRect(ToFixedRect(this.Option.width), ToFixedRect(y - 10), ToFixedRect(this.ChartSize.YAxisWidth), ToFixedRect(20))
+    this.Canvas.fillRect(ToFixedRect(this.Option.width), ToFixedRect(y - 10), ToFixedRect(ChartSize.getInstance().YAxisWidth), ToFixedRect(20))
     this.Canvas.font = '12px san-serif'
     this.Canvas.fillStyle = g_GoTopChartResource.FontLightColor
     this.Canvas.fillText(closePrice, this.Option.width + 10, y + 5)
@@ -467,12 +664,12 @@ function KLine () {
         minIndex = index
       }
     })
-    const maxX = this.ChartSize.GetLeft() + (ZOOM_SEED[CurScaleIndex][0] + ZOOM_SEED[CurScaleIndex][1]) * maxIndex
-    const maxY = this.ValueHeight - (max - this.Option['yAxis'].Min) * this.UnitPricePx + this.ChartSize.GetTop()
+    const maxX = ChartSize.getInstance().GetLeft() + (ZOOM_SEED[CurScaleIndex][0] + ZOOM_SEED[CurScaleIndex][1]) * maxIndex
+    const maxY = this.ValueHeight - (max - this.Option['yAxis'].Min) * this.UnitPricePx + ChartSize.getInstance().GetTop()
     const maxTW = this.OptCanvas.measureText(max).width
 
     const minX = WindowSizeOptions.padding.left + (ZOOM_SEED[CurScaleIndex][0] + ZOOM_SEED[CurScaleIndex][1]) * minIndex
-    const minY = this.ValueHeight - (min - this.Option['yAxis'].Min) * this.UnitPricePx + this.ChartSize.GetTop()
+    const minY = this.ValueHeight - (min - this.Option['yAxis'].Min) * this.UnitPricePx + ChartSize.getInstance().GetTop()
     const minTW = this.OptCanvas.measureText(min).width
 
     this.Canvas.fillStyle = g_GoTopChartResource.FontLightColor
@@ -492,7 +689,7 @@ function KLine () {
 
 // X轴画法
 function XAxis () {
-  this.newMethod = ChartPainting()
+  this.newMethod = ChartPainting
   this.newMethod()
   delete this.newMethod
 
@@ -503,6 +700,7 @@ function XAxis () {
     this.OptCanvas = optCanvas
     this.Option = option
     this.Data = data
+    this.Draw()
   }
 
   /**
@@ -522,7 +720,7 @@ function XAxis () {
 
 // Y轴画法
 function YAxis () {
-  this.newMethod = ChartPainting()
+  this.newMethod = ChartPainting
   this.newMethod()
   delete this.newMethod
 
@@ -550,7 +748,7 @@ function YAxis () {
     this.Option = option
     this.SplitNumber = splitNumber
 
-    this.ValueHeight = this.Option.height - this.ChartSize.GetTop() - this.ChartSize.GetBottom() - this.ChartSize.GetTitleHeight()
+    this.ValueHeight = this.Option.height - ChartSize.getInstance().GetTop() - ChartSize.getInstance().GetBottom() - ChartSize.getInstance().GetTitleHeight()
 
     this.CalculationMinMaxValue(this.Option.Key)
     this.CalculationUnitValue()
@@ -683,7 +881,7 @@ function YAxis () {
     while (label <= this.Max) {
       let item = {
         label: label,
-        y: (this.Max - label) * this.UnitPricePx + this.ChartSize.GetTitleHeight() + this.ChartSize.GetTop() + this.Option.position.top
+        y: (this.Max - label) * this.UnitPricePx + ChartSize.getInstance().GetTitleHeight() + ChartSize.getInstance().GetTop() + this.Option.position.top
       }
       this.LabelList.push(item)
       label = label.add(this.UnitValue)
@@ -722,7 +920,7 @@ function YAxis () {
     this.Canvas.lineWidth = 0.5
     this.LabelList.forEach((item, index, list) => {
       this.Canvas.moveTo(0, ToFixedPoint(item.y))
-      this.Canvas.lineTo(this.ChartSize.GetChartWidth() - this.ChartSize.YAxisWidth, ToFixedPoint(item.y))
+      this.Canvas.lineTo(ChartSize.getInstance().GetChartWidth() - ChartSize.getInstance().YAxisWidth, ToFixedPoint(item.y))
     })
     this.Canvas.stroke()
     this.Canvas.closePath()
@@ -731,7 +929,7 @@ function YAxis () {
     this.Canvas.strokeStyle = g_GoTopChartResource.BorderColor
     this.Canvas.lineWidth = 2
     this.Canvas.moveTo(0, this.Option.position.top + this.Option.height)
-    this.Canvas.lineTo(this.ChartSize.GetChartWidth(), this.Option.position.top + this.Option.height)
+    this.Canvas.lineTo(ChartSize.getInstance().GetChartWidth(), this.Option.position.top + this.Option.height)
     this.Canvas.stroke()
     this.Canvas.closePath()
   }
@@ -739,7 +937,7 @@ function YAxis () {
 
 // MACD画法
 function MACD () {
-  this.newMethod = ChartPainting()
+  this.newMethod = ChartPainting
   this.newMethod()
   delete this.newMethod
 
@@ -752,7 +950,7 @@ function MACD () {
     this.Datas = datas
 
     if (this.Option.yAxis.Min < 0) {
-      this.ZeroY = this.Option.position.top + this.Option.height + this.ChartSize.GetTitleHeight() - Math.abs(this.Option.yAxis.Min * this.Option.yAxis.unitPricePx)
+      this.ZeroY = this.Option.position.top + this.Option.height + ChartSize.getInstance().GetTitleHeight() - Math.abs(this.Option.yAxis.Min * this.Option.yAxis.unitPricePx)
     }
 
     this.Draw()
@@ -801,9 +999,9 @@ function MACD () {
 
   this.DrawCurve = function (i, attrName) {
     var StartY
-    var StartX = this.ChartSize.GetLeft() + (ZOOM_SEED[CurScaleIndex][0] + ZOOM_SEED[CurScaleIndex][1]) * i + ZOOM_SEED[CurScaleIndex][0] / 2 + this.Option.position.left
+    var StartX = ChartSize.getInstance().GetLeft() + (ZOOM_SEED[CurScaleIndex][0] + ZOOM_SEED[CurScaleIndex][1]) * i + ZOOM_SEED[CurScaleIndex][0] / 2 + this.Option.position.left
     if (parseFloat(this.Datas[i][attrName]) >= 0) {
-      this.ZeroY != null ? StartY = this.ZeroY - (parseFloat(this.Datas[i][attrName]) * this.Option.yAxis.unitPricePx) : this.StartY = this.Option.position.top + this.Option.height + this.ChartSize.GetTitleHeight() - (parseFloat(this.Datas[i][attrName]) * this.Option.yAxis.unitPricePx) - this.ChartSize.GetTop() + this.ChartSize.GetTitleHeight()
+      this.ZeroY != null ? StartY = this.ZeroY - (parseFloat(this.Datas[i][attrName]) * this.Option.yAxis.unitPricePx) : this.StartY = this.Option.position.top + this.Option.height + ChartSize.getInstance().GetTitleHeight() - (parseFloat(this.Datas[i][attrName]) * this.Option.yAxis.unitPricePx) - ChartSize.getInstance().GetTop() + ChartSize.getInstance().GetTitleHeight()
     } else {
       StartY = this.ZeroY + (Math.abs(parseFloat(this.Datas[i][attrName]) * this.Option.yAxis.unitPricePx))
     }
@@ -814,7 +1012,7 @@ function MACD () {
   }
 
   this.DrawVerticalDownLine = function (i, attrName) {
-    var StartX = this.ChartSize.GetLeft() + (ZOOM_SEED[CurScaleIndex][0] + ZOOM_SEED[CurScaleIndex][1]) * i + ZOOM_SEED[CurScaleIndex][0] / 2 + this.Option.position.left
+    var StartX = ChartSize.getInstance().GetLeft() + (ZOOM_SEED[CurScaleIndex][0] + ZOOM_SEED[CurScaleIndex][1]) * i + ZOOM_SEED[CurScaleIndex][0] / 2 + this.Option.position.left
     this.Canvas.strokeStyle = this.Option.style['MACD']['down']
     var StartY = this.ZeroY + (Math.abs(parseFloat(this.Datas[i][attrName]) * this.Option.yAxis.unitPricePx))
     this.Canvas.moveTo(StartX, StartY)
@@ -823,9 +1021,9 @@ function MACD () {
 
   this.DrawVerticalUpLine = function (i, attrName) {
     var StartY
-    var StartX = this.ChartSize.GetLeft() + (ZOOM_SEED[CurScaleIndex][0] + ZOOM_SEED[CurScaleIndex][1]) * i + ZOOM_SEED[CurScaleIndex][0] / 2 + this.Option.position.left
+    var StartX = ChartSize.getInstance().GetLeft() + (ZOOM_SEED[CurScaleIndex][0] + ZOOM_SEED[CurScaleIndex][1]) * i + ZOOM_SEED[CurScaleIndex][0] / 2 + this.Option.position.left
     this.Canvas.strokeStyle = this.Option.style['MACD']['up']
-    this.ZeroY != null ? StartY = this.ZeroY - (parseFloat(this.Datas[i][attrName]) * this.Option.yAxis.unitPricePx) : StartY = this.Option.position.top + this.Option.height + this.ChartSize.GetTitleHeight() - (parseFloat(this.Datas[i][attrName]) * this.Option.yAxis.unitPricePx) - this.ChartSize.GetTop() + this.ChartSize.GetTitleHeight()
+    this.ZeroY != null ? StartY = this.ZeroY - (parseFloat(this.Datas[i][attrName]) * this.Option.yAxis.unitPricePx) : StartY = this.Option.position.top + this.Option.height + ChartSize.getInstance().GetTitleHeight() - (parseFloat(this.Datas[i][attrName]) * this.Option.yAxis.unitPricePx) - ChartSize.getInstance().GetTop() + ChartSize.getInstance().GetTitleHeight()
     this.Canvas.moveTo(StartX, StartY)
     this.Canvas.lineTo(StartX, this.ZeroY)
   }
@@ -841,27 +1039,17 @@ function ChartFramePainting () {
   this.Option
   this.ChartTitlePainting
   this.DrawPictureList = new Array()
-  this.ChartSize
   this.Canvas
   this.OptCanvas
   this.XAxis
   this.YAxis
   this.Name
-  this.Data
-
-  this.Create = function (canvas, optCanvas, option, data) {
-    this.Canvas = canvas
-    this.OptCanvas = optCanvas
-    this.Option = option
-    this.Data = data
-  }
+  this.ChartData
 
   this.DrawChartFramePaint = function () {
-    // yAxis
-    this.YAxis = new YAxis()
-    this.YAxis.Create(this.Canvas, this.OptCanvas, this.Option.yAxis, this.Data)
     // window title
     this.ChartTitlePainting = new ChartTitlePainting()
+    this.ChartTitlePainting.ChartSize = ChartSize.getInstance()
     this.ChartElement.appendChild(this.ChartTitlePainting.Create(this.Option))
     this.ChartTitlePainting.CreateValueBoX()
   }
@@ -891,7 +1079,7 @@ function ChartExtendPainting () {
 
 // 顶部工具栏
 function TopToolContainer () {
-  this.newMethod = ChartExtendPainting()
+  this.newMethod = ChartExtendPainting
   this.newMethod()
   delete this.newMethod
 
@@ -926,7 +1114,11 @@ function TopToolContainer () {
     }
 
     this.DivElement.innerHTML = this.HTML
-    this.ParentDivElement.appendChild(this.DivElement)
+    return this.DivElement
+  }
+
+  this.SetWidth = function (width) {
+    this.DivElement.style.width = width
   }
 
   this.RegisterClickEvent = function (callback) {
@@ -940,14 +1132,14 @@ function TopToolContainer () {
 
 // 左侧工具栏
 function LeftToolContainer () {
-  this.newMethod = ChartExtendPainting()
+  this.newMethod = ChartExtendPainting
   this.newMethod()
   delete this.newMethod
 
   this.FeaturesList = [
-    { id: 'cursor-tool', divClass="draw-tool-item", divStyle: 'margin-top:10px', spanClass: 'iconfont icon-icongb', spanStyle: 'font-size: 30px;' },
-    { id: 'line-tool', divClass="draw-tool-item", divStyle: '', spanClass: 'iconfont icon-xianduan1', spanStyle: 'font-size: 30px;' },
-    { id: 'rect-tool', divClass="draw-tool-item", divStyle: '', spanClass: 'iconfont icon-juxing', spanStyle: 'font-size: 30px;' },
+    { id: 'cursor-tool', divClass: "draw-tool-item", divStyle: 'margin-top:10px', spanClass: 'iconfont icon-icongb', spanStyle: 'font-size: 30px;' },
+    { id: 'line-tool', divClass: "draw-tool-item", divStyle: '', spanClass: 'iconfont icon-xianduan1', spanStyle: 'font-size: 30px;' },
+    { id: 'rect-tool', divClass: "draw-tool-item", divStyle: '', spanClass: 'iconfont icon-juxing', spanStyle: 'font-size: 30px;' },
   ]
 
   this.Height
@@ -967,7 +1159,11 @@ function LeftToolContainer () {
     }
 
     this.DivElement.innerHTML = this.HTML
-    this.ParentDivElement.appendChild(this.DivElement)
+    return this.DivElement
+  }
+
+  this.SetHeight = function (height) {
+    this.DivElement.style.height = height
   }
 
   this.RegisterClickEvent = function (callback) {
@@ -1107,7 +1303,6 @@ function PeriodDialog () {
 function ChartTitlePainting () {
   this.Name
   this.Option
-  this.ParentDivElement
   this.DivElement
   this.CurValue
 
@@ -1136,7 +1331,7 @@ function ChartTitlePainting () {
       '<div>'
     this.DivElement.style.top = option.position.top + 10 + 'px'
     this.DivElement.style.left = option.position.left + 10 + 'px'
-    this.DivElement.style.width = WindowSizeOptions.chartContainerWidth - WindowSizeOptions.yAxisContainerWidth - option.position.left - 20 + 'px'
+    this.DivElement.style.width = ChartSize.getInstance().ChartContentWidth - ChartSize.getInstance().YAxisWidth - ChartSize.getInstance().GetLeft() - 20 + 'px'
     return this.DivElement
   }
 
@@ -1166,11 +1361,11 @@ function ChartTitlePainting () {
     if (this.Name == 'kLine') {
       var colorStyle
       if (curValue['open'] > curValue['close']) {
-        colorStyle = g_ThemeResource.DownColor
+        colorStyle = g_GoTopChartResource.DownColor
       } else if (curValue['open'] < curValue['close']) {
-        colorStyle = g_ThemeResource.UpColor
+        colorStyle = g_GoTopChartResource.UpColor
       } else {
-        colorStyle = g_ThemeResource.FontColor
+        colorStyle = g_GoTopChartResource.FontColor
       }
       for (let i in curValue) {
         $('#' + i).css('color', colorStyle)
@@ -1197,34 +1392,84 @@ function ChartTitlePainting () {
 function CrossCursor () {
   this.Canvas
   this.OptCanvas
+  this.XAxisOption
+  this.ChartFramePaintingList
   this.IsShow
-  this.ChartSize
+  this.ChartData
 
-  this.Create = function (canvas, optCanvas, options) {
+  this.Create = function (canvas, optCanvas, frameList, xAxisOption) {
     this.Canvas = canvas
     this.OptCanvas = optCanvas
-    this.FrameList = options
+    this.ChartFramePaintingList = frameList
+    this.XAxisOption = xAxisOption
   }
 
   this.Move = function (x, y) {
     let kn = Math.ceil(x / (ZOOM_SEED[CurScaleIndex][1] + ZOOM_SEED[CurScaleIndex][0]))
     let cursorX = (ZOOM_SEED[CurScaleIndex][0] + ZOOM_SEED[CurScaleIndex][1]) * kn - ZOOM_SEED[CurScaleIndex][0] / 2 - ZOOM_SEED[CurScaleIndex][1]
     this.OptCanvas.beginPath()
-    this.OptCanvas.strokeStyle = g_ThemeResource.FontColor
+    this.OptCanvas.strokeStyle = g_GoTopChartResource.FontColor
     this.OptCanvas.lineWidth = 1
     this.OptCanvas.setLineDash([5, 5])
     this.OptCanvas.moveTo(ToFixedPoint(cursorX), ToFixedPoint(0))
-    this.OptCanvas.lineTo(ToFixedPoint(cursorX), ToFixedPoint(this.ChartSize.ChartContentHeight - this.ChartSize.XAxisHeight))
+    this.OptCanvas.lineTo(ToFixedPoint(cursorX), ToFixedPoint(ChartSize.getInstance().ChartContentHeight - ChartSize.getInstance().XAxisHeight))
     this.OptCanvas.moveTo(ToFixedPoint(0), ToFixedPoint(y))
-    this.OptCanvas.lineTo(ToFixedPoint(this.ChartSize.ChartContentWidth - this.ChartSize.YAxisWidth), ToFixedPoint(y))
+    this.OptCanvas.lineTo(ToFixedPoint(ChartSize.getInstance().ChartContentWidth - ChartSize.getInstance().YAxisWidth), ToFixedPoint(y))
     this.OptCanvas.stroke()
     this.OptCanvas.closePath()
     this.DrawLabel(kn, cursorX, y)
     return kn
   }
 
-  this.Draw = function () {
+  this.DrawLabel = function (index, x, y) {
 
+    let itemData = this.ChartData[index]
+    const xtw = this.OptCanvas.measureText(itemData.datetime).width
+
+    this.OptCanvas.beginPath()
+    this.OptCanvas.clearRect(0, this.XAxisOption['position']['top'], this.XAxisOption['width'], this.XAxisOption['height'])
+    this.OptCanvas.fillStyle = g_GoTopChartResource.BorderColor
+    if (x < xtw / 2 + 10) {
+      this.OptCanvas.fillRect(ToFixedRect(0), ToFixedRect(this.XAxisOption['position']['top']), ToFixedRect(xtw + 20), ToFixedRect(this.XAxisOption['height'] - 5))
+      this.OptCanvas.font = "12px sans-serif"
+      this.OptCanvas.fillStyle = g_GoTopChartResource.FontLightColor
+      this.OptCanvas.fillText(itemData.datetime, ToFixedPoint(10), this.XAxisOption['position']['top'] + 18)
+    } else {
+      this.OptCanvas.fillRect(ToFixedRect(x - xtw / 2 - 10), ToFixedRect(this.XAxisOption['position']['top']), ToFixedRect(xtw + 20), ToFixedRect(this.XAxisOption['height'] - 5))
+      this.OptCanvas.font = "12px sans-serif"
+      this.OptCanvas.fillStyle = g_GoTopChartResource.FontLightColor
+      this.OptCanvas.fillText(itemData.datetime, ToFixedPoint(x - xtw / 2), this.XAxisOption['position']['top'] + 18)
+    }
+
+    this.OptCanvas.strokeStyle = g_GoTopChartResource.FontLightColor
+    this.OptCanvas.lineWidth = 1
+    this.OptCanvas.moveTo(ToFixedPoint(x), ToFixedPoint(this.XAxisOption['position']['top']))
+    this.OptCanvas.lineTo(ToFixedPoint(x), this.XAxisOption['position']['top'] + 5)
+
+    this.OptCanvas.stroke()
+    this.OptCanvas.closePath()
+
+    var drawYAxisLabel = function (option) {
+      self.OptCanvas.beginPath()
+      self.OptCanvas.fillStyle = g_GoTopChartResource.BorderColor
+      self.OptCanvas.fillRect(ToFixedRect(ChartSize.getInstance().ChartContentWidth - ChartSize.getInstance().YAxisWidth), ToFixedRect(y - 10), ToFixedRect(ChartSize.getInstance().YAxisWidth), ToFixedRect(20))
+      self.OptCanvas.font = '12px san-serif'
+      self.OptCanvas.fillStyle = g_GoTopChartResource.FontLightColor
+      self.OptCanvas.fillText(((((option['height'] - ChartSize.getInstance().GetTop() - ChartSize.getInstance().GetBottom() - ChartSize.getInstance().GetTitleHeight()) - (y - option['position']['top'] - ChartSize.getInstance().GetTop() - ChartSize.getInstance().GetTitleHeight())) / option['yAxis'].unitPricePx) + option['yAxis'].Min).toFixed(4), ChartSize.getInstance().ChartContentWidth - ChartSize.getInstance().YAxisWidth + 10, y + 5)
+      self.OptCanvas.lineWidth = 1
+      self.OptCanvas.strokeStyle = g_GoTopChartResource.FontLightColor
+      self.OptCanvas.moveTo(ChartSize.getInstance().ChartContentWidth - ChartSize.getInstance().YAxisWidth, ToFixedPoint(y))
+      self.OptCanvas.lineTo(ChartSize.getInstance().ChartContentWidth - ChartSize.getInstance().YAxisWidth + 5, ToFixedPoint(y))
+      self.OptCanvas.stroke()
+      self.OptCanvas.closePath()
+    }
+
+    // 绘制Y轴上的标识
+    for (let i in this.ChartFramePaintingList) {
+      if (y < this.ChartFramePaintingList[i].Option['position']['top'] + this.ChartFramePaintingList[i].Option['height'] && y > this.ChartFramePaintingList[i].Option['position']['top']) {
+        drawYAxisLabel(this.ChartFramePaintingList[i].Option)
+      }
+    }
   }
 }
 
@@ -1233,12 +1478,24 @@ function CrossCursor () {
 //             图表数据处理基类
 //
 ////////////////////////////////////////////
+function DataObj () {
+  var datetime
+  var open
+  var high
+  var low
+  var close         // 当前K线未结束则为最新价
+  var volumn
+  var closetime     // 收盘时间
+}
+
 function ChartData () {
-  this.Data
+  this.Instance = null
+  this.Data = new Array()
   this.NewData
   this.DataOffSet
   this.Period
   this.Symbol
+  this.PeriodData = {}
 
   this.AddHistoryData = function () {
 
@@ -1257,8 +1514,44 @@ function ChartData () {
   }
 
   this.GetPeriodData = function (period) {
-
   }
+
+  this.GetCurPeriodData = function () {
+    return this.PeriodData[this.Period].Data
+  }
+
+  this.GetCurShowData = function () {
+    return Data
+  }
+
+  this.GetCurPeriodDataLength = function () {
+    return this.PeriodData[this.Period].Data.length
+  }
+
+  this.GetEndTimeOfPeriodData = function () {
+    return this.PeriodData[this.Period].Data[this.PeriodData[this.Period].Data.length - 1].datetime
+  }
+
+  this.GetStartTimeOfPeriodData = function () {
+    return this.PeriodData[this.Period].Data[0].datetime
+  }
+}
+
+ChartData.getInstance = function () {
+  if (!this.Instance) {
+    this.Instance = new ChartData()
+  }
+  return this.Instance
+}
+
+function IndicatorData () {
+  this.newMethod = ChartData
+  this.newMethod()
+  delete this.newMethod
+
+  this.Name
+  this.KLineData
+
 }
 
 ////////////////////////////////////////////
@@ -1281,47 +1574,26 @@ function GoTopChartResource () {
   this.BorderWidth = [2, 1]
   this.SettingsList
   this.LineColor = ['#ffc400']
+
+  this.Domain = "https://api.binance.com"
 }
 
 var g_GoTopChartResource = new GoTopChartResource()
-
+var pixelTatio = GetDevicePixelRatio();
 //周期条件枚举
 var CONDITION_PERIOD =
 {
-  MINUTE_ID: 101,            //分钟      走势图
-  MULTIDAY_MINUTE_ID: 102,   //多日分钟  走势图
-  HISTORY_MINUTE_ID: 103,    //历史分钟  走势图
-
-  //K线周期  0=日线 1=周线 2=月线 3=年线 4=1分钟 5=5分钟 6=15分钟 7=30分钟 8=60分钟
-  KLINE_DAY_ID: 0,
-  KLINE_WEEK_ID: 1,
-  KLINE_MONTH_ID: 2,
-  KLINE_YEAR_ID: 3,
-  KLINE_MINUTE_ID: 4,
-  KLINE_5_MINUTE_ID: 5,
-  KLINE_15_MINUTE_ID: 6,
-  KLINE_30_MINUTE_ID: 7,
-  KLINE_60_MINUTE_ID: 8
+  //K线周期  1d=日线 1w=周线 1M=月线 1y=年线 1m=1分钟 5m=5分钟 15m=15分钟 30m=30分钟 1h=60分钟
+  KLINE_DAY_ID: "1d",
+  KLINE_WEEK_ID: "1w",
+  KLINE_MONTH_ID: "1M",
+  KLINE_YEAR_ID: "1y",
+  KLINE_MINUTE_ID: "1m",
+  KLINE_5_MINUTE_ID: "5m",
+  KLINE_15_MINUTE_ID: "15m",
+  KLINE_30_MINUTE_ID: "30m",
+  KLINE_60_MINUTE_ID: "1h"
 };
-
-var CurScaleIndex = 8
-var ZOOM_SEED =
-  [
-    [48, 10], [44, 10],
-    [40, 9], [36, 9],
-    [32, 8], [28, 8],
-    [24, 7], [20, 7],
-    [18, 6], [16, 6],
-    [14, 5], [12, 5],
-    [8, 4], [6, 4],
-    [6, 3], [3, 3],
-    [3, 1], [2, 1],
-    [1, 1], [1, 0.5],
-    [1, 0.2], [1, 0.1],
-    [0.8, 0.1], [0.6, 0.1],
-    [0.5, 0.1], [0.4, 0.1],
-    [0.3, 0.1], [0.2, 0.1]
-  ];
 
 function GetDevicePixelRatio () {
   if (typeof (window) == 'undefined') return 1;
