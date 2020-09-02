@@ -357,10 +357,10 @@ function GoTopChartComponent () {
 
   this.RequestNewIndicatorData = function () {
     for (let i in this.IndicatorList) {
-      if (this.IndicatorDataList[i]            // 该指标是否存在 
-        && this.IndicatorDataList[i].PeriodData[this.IndicatorDataList[i].Period] // 是否存在对应的周期对象
+      if (this.IndicatorDataList[i]                                                     // 该指标是否存在 
+        && this.IndicatorDataList[i].PeriodData[this.IndicatorDataList[i].Period]       // 是否存在对应的周期对象
         && this.IndicatorDataList[i].PeriodData[this.IndicatorDataList[i].Period].Data  // 是否存在对应的周期数据
-      ) {
+        && ) {
 
       }
     }
