@@ -22,9 +22,48 @@
   <div id="kline" style="width: 900px;height:400px;position: relative;"></div>
   <script>
     var symbol = 'BNB/USDT'
-    var mode = 1 // 0 离线、1 在线
+    var mode = 0 // 0 离线、1 在线
     var divKline = document.getElementById('kline')
     var chart = GoTopChart.Init(divKline)
+
+    var options = {
+      Window:
+        [
+          {
+            Index: 'MACD',
+            Params: {
+              FastLength: 12,
+              SlowLength: 26
+            },
+            Key: ['DIFF', 'DEA', 'MACD'],
+            Style: {
+              DIFF: '#0094ff',
+              DEA: '#ff6a00',
+              MACD: {
+                UP: '#26a69a',
+                DOWN: '#ef5350'
+              }
+            }
+          }
+        ],
+
+      Symbol: symbol,
+      Mode: mode,
+
+      KLine:
+      {
+        Period: "1m",
+        MaxRequestDataCount: 1000,
+      },
+
+      Border:
+      {
+        Left: 5,
+        Right: 5,
+        Bottom: 5,
+        Top: 5
+      }
+    }
 
     $(window).resize(resizeCanvas)
 
@@ -37,6 +76,7 @@
       divKline.style.width = (width) + 'px';
       divKline.style.height = (height) + 'px';
       chart.OnSize();
+      chart.SetOption(options)
     }
 
     $(function () {
@@ -46,46 +86,6 @@
       divKline.style.width = (width) + 'px';
       divKline.style.height = (height) + 'px';
       chart.OnSize();
-
-      var options = {
-        Window:
-          [
-            // {
-            //   Index: 'MACD',
-            //   Params: {
-            //     FastLength: 12,
-            //     SlowLength: 26
-            //   },
-            //   Key: ['DIFF', 'DEA', 'MACD'],
-            //   Style: {
-            //     DIFF: '#0094ff',
-            //     DEA: '#ff6a00',
-            //     MACD: {
-            //       UP: '#26a69a',
-            //       DOWN: '#ef5350'
-            //     }
-            //   }
-            // }
-          ],
-
-        Symbol: symbol,
-        Mode: mode,
-
-        KLine:
-        {
-          Period: "1m",
-          MaxRequestDataCount: 1000,
-        },
-
-        Border:
-        {
-          Left: 5,
-          Right: 5,
-          Bottom: 5,
-          Top: 5
-        }
-      }
-
       chart.SetOption(options)
     })
   </script>
