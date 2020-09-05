@@ -33,6 +33,11 @@ ol li {
   background: #2c3450;
 }
 
+.chart-main-element {
+  position: absolute;
+  z-index: 3;
+}
+
 .jschart-drawing {
   position: absolute;
   z-index: 1;

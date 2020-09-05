@@ -175,6 +175,7 @@ function GoTopChart (divElement) {
   }
 
   this.ChartElement.onmousemove = function (e) {
+    console.log('move')
     if (isLoadData) return
     if (!self.DrawToolObjOptDialog.isHide) return
     if ((e.offsetY) * pixelTatio < WindowSizeOptions.chartContainerHeight - WindowSizeOptions.xAxisContainerHeight && (e.offsetX) * pixelTatio < WindowSizeOptions.chartContainerWidth - WindowSizeOptions.yAxisContainerWidth) {
@@ -272,6 +273,7 @@ function GoTopChart (divElement) {
   }
 
   this.ChartElement.onmousedown = function (e) {
+    console.log('down')
     if (self.DrawToolObjOptDialog.isHide == false && e.clientX >= self.DrawToolObjOptDialog.GetPosition().x + WindowSizeOptions.leftToolContainerWidth + WindowSizeOptions.chartLeft && e.offsetX <= self.DrawToolObjOptDialog.GetPosition().x + WindowSizeOptions.leftToolContainerWidth + WindowSizeOptions.chartLeft + WindowSizeOptions.drawToolOptDialogWidth
       && e.clientY >= self.DrawToolObjOptDialog.GetPosition().y + WindowSizeOptions.topToolContainerHeight + WindowSizeOptions.chartTop && e.offsetY <= self.DrawToolObjOptDialog.GetPosition().y + WindowSizeOptions.topToolContainerHeight + WindowSizeOptions.chartTop + self.DrawToolObjOptDialog.GetHeight()) {
       // 点击在 drawToolObjOpt 区域 内
@@ -346,6 +348,7 @@ function GoTopChart (divElement) {
   }
 
   this.ChartElement.onmouseup = function (e) {
+    console.log('up')
     if (!e) e = window.event;
     if (e.button == 2) {
       // 右键 弹出 画图对象 的opt弹窗
@@ -2108,7 +2111,7 @@ var CONDITION_PERIOD =
 
 var CurScaleIndex = 8
 var ZOOM_SEED =
-[
+  [
     [48, 10], [44, 10],
     [40, 9], [36, 9],
     [32, 8], [28, 8],

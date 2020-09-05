@@ -138,8 +138,22 @@ function GoTopChartComponent () {
 
   var self = this
 
-  this.CreateElement = function () {
+  this.ClickEventCallBack = function (type) {
+    switch (type) {
+      case 'delete':
+        if (self.DrawPictureIndex.CurSelectIndex != null) {
+          self.DrawPictureToolList.splice(self.DrawPictureIndex.CurSelectIndex, 1)
+          self.DrawPictureIndex.CurSelectIndex = null
+          self.DrawPictureIndex.CurHoverIndex = null
+          self.DrawPictureIndex.CurSelectPoint != null && (self.DrawPictureIndex.CurSelectPoint = null)
+          self.DrawPictureOptDialog.SetHide()
+        }
+        break;
+    }
+  }
 
+  this.CreateElement = function () {
+    this.RequestRealTimeData()
     // 加载loading element
     this.LoadElement = document.createElement('div')
     this.LoadElement.className = "load-ele"
@@ -153,6 +167,8 @@ function GoTopChartComponent () {
     this.ChartElement.appendChild(this.LoadElement)
     this.ChartElement.appendChild(this.CanvasElement)
     this.ChartElement.appendChild(this.OptCanvasElement)
+    this.ChartElement.appendChild(this.DrawPictureOptDialog.Create())
+    this.DrawPictureOptDialog.RegisterClickEvent(this.ClickEventCallBack)
   }
 
   this.Resize = function () {
@@ -307,6 +323,11 @@ function GoTopChartComponent () {
           break;
       }
     }
+
+    for (let i in this.DrawPictureToolList) {
+      this.DrawPictureToolList[i].Canvas && this.DrawPictureToolList[i].Draw(null, null)
+    }
+
   }
 
   this.CreateDrawPictureTool = function (id) {
@@ -323,74 +344,118 @@ function GoTopChartComponent () {
         break;
       case "line-tool":
         var obj = new LineElement()
+        obj.Name = 'line'
         obj.IsSelect = true
         this.DrawPictureToolList.push(obj)
         break;
       case "rect-tool":
         var obj = new RectElement()
         obj.IsSelect = true
+        obj.Name = 'rect'
         this.DrawPictureToolList.push(obj)
         break;
     }
   }
 
   this.OptCanvasElement.onmousemove = function (e) {
+    console.log('move')
     if (self.IsLoadData || !self.DrawPictureOptDialog.IsHide) {
       return
     }
-    self.ClearOptCanvas()
     var obj = self.GetFixOffSetYX(e.clientX, e.clientY)   // 计算出当前鼠标在 画布中的 x 和 y
 
     // 判断是否在 Chart 可绘制区域内
     if (obj.x > ChartSize.getInstance().GetLeft()
       && obj.x < ChartSize.getInstance().GetLeft() + ChartData.getInstance().Data.length * ChartSize.getInstance().GetKLineWidth()
-      // && obj.x < ChartSize.getInstance().ChartContentWidth - ChartSize.getInstance().YAxisWidth - ChartSize.getInstance().GetRight()
       && obj.y < ChartSize.getInstance().ChartContentHeight - ChartSize.getInstance().XAxisHeight
       && obj.y > ChartSize.getInstance().GetTop() + ChartSize.getInstance().GetTitleHeight()
     ) {
+      self.ClearOptCanvas()
 
       if (self.Status == 0 && self.Drag == false) {
         // 光标移动
         var kIndex = self.CrossCursor.Move(obj.x * pixelTatio, obj.y * pixelTatio)
         // 更新 title 值
         self.UpdateTitleCurValue(kIndex)
+        // 判断之前是否有hover画图对象，有的话要进行重置
+        if (self.DrawPictureIndex.CurHoverIndex != null) {
+          self.DrawPictureToolList[self.DrawPictureIndex.CurHoverIndex].IsHover = false
+          self.DrawPictureIndex.CurHoverIndex = null
+        }
+        // 判断当前光标位置是否有hover的画图对象
+        var isPointInPath = -1
+        for (let d in self.DrawPictureToolList) {
+          isPointInPath = self.DrawPictureToolList[d].IsPointInPath(obj.x, obj.y)
+          console.log('hover', isPointInPath)
+          if (isPointInPath == -1) {
+            continue
+          }
+          self.DrawPictureIndex.CurHoverIndex = d
+          self.DrawPictureToolList[d].IsHover = true
+          break
+        }
       }
       // 数据拖动
-      if (self.Status == 0 && self.Drag == true) {
+      if (self.Status == 0 && self.Drag == true && self.DrawPictureIndex.CurSelectIndex == null) {
         self.ClearMainCanvas()
-        let moveStep = Math.abs(drag.lastMove.X - e.offsetX)
-        let isLeft = true
-        if (drag.lastMove.X < e.offsetX) isLeft = false
+        var moveStep = Math.abs(drag.lastMove.X - obj.x)
+        var isLeft = true
+        if (drag.lastMove.X < obj.x) isLeft = false
         self.MoveData(moveStep, isLeft)
-        drag.lastMove.X = e.offsetX
-        drag.lastMove.Y = e.offsetY
+        drag.lastMove.X = obj.x
+        drag.lastMove.Y = obj.y
+      }
+
+      // 画图工具 整体拖动
+      if (self.DrawPictureIndex.CurSelectIndex != null && self.DrawPictureIndex.CurSelectPoint == null && self.Drag) {
+        var moveY = obj.y - drag.lastMove.Y
+        var lastIndex = Math.ceil(drag.lastMove.X / (ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1] + ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0]))
+        var offsetIndex = Math.ceil(obj.x / (ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1] + ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0]))
+        for (var i in self.DrawPictureToolList[self.DrawPictureIndex.CurSelectIndex].Position) {
+          self.DrawPictureToolList[self.DrawPictureIndex.CurSelectIndex].UpdatePoint(i, offsetIndex - lastIndex, moveY)
+        }
+        drag.lastMove.X = obj.x
+        drag.lastMove.Y = obj.y
+      }
+
+      // 画图工具 某个点进行改动
+      if (self.DrawPictureIndex.CurSelectIndex != null && self.DrawPictureIndex.CurSelectPoint != null && self.Drag) {
+        let moveY = obj.y - drag.lastMove.Y
+        var lastIndex = Math.ceil(drag.lastMove.X / (ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1] + ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0]))
+        var offsetIndex = Math.ceil(obj.x / (ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1] + ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0]))
+        self.DrawPictureToolList[self.DrawPictureIndex.CurSelectIndex].UpdatePoint(self.DrawPictureIndex.CurSelectPoint, offsetIndex - lastIndex, moveY)
+        drag.lastMove.X = obj.x
+        drag.lastMove.Y = obj.y
+      }
+      for (let i in self.DrawPictureToolList) {
+        self.DrawPictureToolList[i].Canvas && self.DrawPictureToolList[i].Draw(obj.x, obj.y)
       }
     }
   }
 
   this.OptCanvasElement.onmousedown = function (e) {
+    console.log('down')
     if (self.IsLoadData) return // 数据加载中，不执行点击逻辑
 
     var obj = self.GetFixOffSetYX(e.clientX, e.clientY)   // 计算出当前鼠标在 画布中的 x 和 y
 
     // 判断是否点击在 drawToolObjOpt 区域 内
-    if (!self.DrawToolObjOptDialog.isHide
-      && obj.x >= self.DrawToolObjOptDialog.GetPosition().x
-      && obj.x <= self.DrawToolObjOptDialog.GetPosition().x + ChartSize.getInstance().DrawToolObjOptDialogWidth
-      && obj.y >= self.DrawToolObjOptDialog.GetPosition().y
-      && obj.y <= self.DrawToolObjOptDialog.GetPosition().y + self.DrawToolObjOptDialog.GetHeight()) {
+    if (!self.DrawPictureOptDialog.isHide
+      && obj.x >= self.DrawPictureOptDialog.GetPosition().x
+      && obj.x <= self.DrawPictureOptDialog.GetPosition().x + ChartSize.getInstance().DrawPictureOptDialogWidth
+      && obj.y >= self.DrawPictureOptDialog.GetPosition().y
+      && obj.y <= self.DrawPictureOptDialog.GetPosition().y + self.DrawPictureOptDialog.GetHeight()) {
       return
     }
 
     // 如果 drawToolObjOpt 显示状态，点击则进行隐藏
-    if (!self.DrawToolObjOptDialog.isHide) {
-      self.DrawToolObjOptDialog.SetHide()
+    if (!self.DrawPictureOptDialog.isHide) {
+      self.DrawPictureOptDialog.SetHide()
     }
 
     // 判断是否在 Chart 可绘制区域内
     if (obj.x > ChartSize.getInstance().GetLeft()
       && obj.x < ChartSize.getInstance().GetLeft() + ChartData.getInstance().Data.length * ChartSize.getInstance().GetKLineWidth()
-      // && obj.x < ChartSize.getInstance().ChartContentWidth - ChartSize.getInstance().YAxisWidth - ChartSize.getInstance().GetRight()
       && obj.y < ChartSize.getInstance().ChartContentHeight - ChartSize.getInstance().XAxisHeight
       && obj.y > ChartSize.getInstance().GetTop() + ChartSize.getInstance().GetTitleHeight()
     ) {
@@ -404,21 +469,21 @@ function GoTopChartComponent () {
       // 画图模式
       if (self.Status === 2) {
         // 判断 画图对象 是否已经初始化完成
-        if (!self.DrawPictureToolList[self.DrawPictureIndex.CurSelectIndex].Canvas) {
+        if (!self.DrawPictureToolList[self.DrawPictureToolList.length - 1].Canvas) {
           var option = null
           // 判断之前是否有选中某个画图对象，有的话要重置
-          if (self.DrawPictureIndex.CurSelectIndex) {
+          if (self.DrawPictureIndex.CurSelectIndex != null) {
             self.DrawPictureToolList[self.DrawPictureIndex.CurSelectIndex].IsSelect = false
           }
           // 初始化 CurSelectPoint
-          if (self.DrawPictureIndex.CurSelectPoint) {
+          if (self.DrawPictureIndex.CurSelectPoint != null) {
             self.DrawPictureIndex.CurSelectPoint = null
           }
           self.DrawPictureIndex.CurSelectIndex = self.DrawPictureToolList.length - 1
           // 遍历当前点击的位置在画布的哪个位置，初始化option
           for (var j in self.ChartFramePaintingList) {
             var o = self.ChartFramePaintingList[j].Option
-            if (obj.y > o.position.top + ChartSize.getInstance().GetTop() + ChartSize.getInstance().GetTitleHeight() && obj.y < o.position.top + option.height - ChartSize.getInstance().GetBottom()) {
+            if (obj.y > o.position.top + ChartSize.getInstance().GetTop() + ChartSize.getInstance().GetTitleHeight() && obj.y < o.position.top + o.height - ChartSize.getInstance().GetBottom()) {
               option = o
             }
           }
@@ -434,35 +499,35 @@ function GoTopChartComponent () {
         if (self.DrawPictureToolList[self.DrawPictureIndex.CurSelectIndex].Position.length
           < self.DrawPictureToolList[self.DrawPictureIndex.CurSelectIndex].PointCount) {
           self.DrawPictureToolList[self.DrawPictureIndex.CurSelectIndex].SetPoint(obj.x, obj.y)
-
         }
         return
       }
       // 光标模式
       if (self.Status === 0) {
         // 判断之前是否有选中某个画图对象，有的话要重置
-        if (self.DrawPictureIndex.CurSelectIndex) {
+        if (self.DrawPictureIndex.CurSelectIndex != null) {
           self.DrawPictureToolList[self.DrawPictureIndex.CurSelectIndex].IsSelect = false
+          self.DrawPictureIndex.CurSelectIndex = null
         }
         // 初始化 CurSelectPoint
-        if (self.DrawPictureIndex.CurSelectPoint) {
+        if (self.DrawPictureIndex.CurSelectPoint != null) {
           self.DrawPictureIndex.CurSelectPoint = null
         }
-        var isPointInPath = -1
+        var inPath = -1
         for (var d in self.DrawPictureToolList) {
-          isPointInPath = self.DrawPictureToolList[d].IsPointInPath(e.offsetX, e.offsetY)
-          if (isPointInPath == -1) {                    // 没有选中
+          inPath = self.DrawPictureToolList[d].IsPointInPath(obj.x, obj.y)
+          if (inPath == -1) {                    // 没有选中
             self.DrawPictureIndex.CurSelectIndex = null
             self.DrawPictureIndex.CurSelectPoint = null
             continue
           }
-          if (isPointInPath != 100) {                   // 选中了Point
+          if (inPath != 100) {                   // 选中了Point
             self.DrawPictureToolList[d].IsSelect = true
             self.DrawPictureIndex.CurSelectIndex = d
-            self.DrawPictureIndex.CurSelectPoint = isPointInPath
+            self.DrawPictureIndex.CurSelectPoint = inPath
             break
           }
-          if (isPointInPath == 100) {                  // 选中了路径
+          if (inPath == 100) {                  // 选中了路径
             self.DrawPictureToolList[d].IsSelect = true
             self.DrawPictureIndex.CurSelectIndex = d
             self.DrawPictureIndex.CurSelectPoint = null
@@ -474,14 +539,15 @@ function GoTopChartComponent () {
   }
 
   this.OptCanvasElement.onmouseup = function (e) {
+    console.log('up', e.button)
     if (!e) e = window.event
     var obj = self.GetFixOffSetYX(e.clientX, e.clientY)
     self.Drag = false
     if (e.button == 2) {
       // 右键，如果有选中画图对象的话，弹窗操作窗口
-      if (self.DrawPictureIndex.CurSelectIndex) {
-        self.DrawToolObjOptDialog.SetPosition(obj.x, obj.y)
-        self.DrawToolObjOptDialog.SetShow()
+      if (self.DrawPictureIndex.CurSelectIndex != null) {
+        self.DrawPictureOptDialog.SetPosition(obj.x, obj.y)
+        self.DrawPictureOptDialog.SetShow()
       }
     }
 
@@ -505,6 +571,7 @@ function GoTopChartComponent () {
     }
     self.ScaleKLine(e.wheelDelta) // 缩放K线大小
     self.ClearMainCanvas()  // 清空画布
+    self.ClearOptCanvas()
     var leftDatasIndex = ChartData.getInstance().DataOffSet + 1 - ChartSize.getInstance().ScreenKNum()
     if (leftDatasIndex < 0) {
       var time = self.CalculationRequestTimeRange('history')  // 计算start 和 end
@@ -516,6 +583,7 @@ function GoTopChartComponent () {
           ChartData.getInstance().BorrowKLineNum = diffNum
         }
         self.LoadIndicatorData(ChartData.getInstance().PeriodData[self.Period].Data.slice(0, ChartData.getInstance().NewData.length + ChartData.getInstance().BorrowKLineNum), 'history')
+        self.UpdateDrawPicturePointIndex()  // 更新绘图对象
         self.Loaded()
         self.SplitData()
         self.Draw()
@@ -620,7 +688,9 @@ function GoTopChartComponent () {
   }
 
   this.RequestRealTimeData = function () {
-
+    JSWebSocket.Connect({
+      url: "wss://stream.binance.com:9443/ws/BNBUSDT@kline_1m"
+    })
   }
 
   this.ProcessHistoryData = function (data, period, callback) {
@@ -759,6 +829,18 @@ function GoTopChartComponent () {
     return iDatas
   }
 
+  /**
+   * @description 当加载history 数据时，绘图的position保存的Index需要继续更新
+   */
+  this.UpdateDrawPicturePointIndex = function () {
+    var length = ChartData.getInstance().NewData.length
+    for (var i in this.DrawPictureToolList) {
+      for (var j in this.DrawPictureToolList[i].Position) {
+        this.DrawPictureToolList[i].Position[j][0] += length
+      }
+    }
+  }
+
   this.ScaleKLine = function (e) {
     if (e > 0) {
       // 放大
@@ -824,6 +906,7 @@ function GoTopChartComponent () {
             ChartData.getInstance().BorrowKLineNum = diffNum
           }
           self.LoadIndicatorData(ChartData.getInstance().PeriodData[self.Period].Data.slice(0, ChartData.getInstance().NewData.length + ChartData.getInstance().BorrowKLineNum), 'history')
+          self.UpdateDrawPicturePointIndex()  // 更新绘图对象
           self.Loaded()
           self.Drag = false
           self.SplitData()
@@ -952,7 +1035,6 @@ function GoTopChartComponent () {
       var kLine = new KLine()
       kLine.Create(self.Canvas, self.OptCanvas, self.ChartFramePaintingList[i].Option, ChartData.getInstance().Data)
     })
-    this.ChartFramePaintingList[i].DrawPicture()
   }
 
   this.DrawMacdChart = function (i) {
@@ -991,7 +1073,7 @@ function ChartSize () {
 
   this.LeftToolWidthPx = 60
   this.TopToolHeightPx = 38
-  this.DrawToolObjOptDialogWidth = 230
+  this.DrawPictureOptDialogWidth = 230
 
   this.YAxisWidth = 60
   this.XAxisHeight = 28
@@ -1207,11 +1289,11 @@ function KLine () {
       }
     })
     const maxX = ChartSize.getInstance().GetLeft() + (ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0] + ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1]) * maxIndex
-    const maxY = this.ValueHeight - (max - this.Option['yAxis'].Min) * this.UnitPricePx + ChartSize.getInstance().GetTop()
+    const maxY = this.ValueHeight - (max - this.Option['yAxis'].Min) * this.UnitPricePx + ChartSize.getInstance().GetTop() + ChartSize.getInstance().GetTitleHeight()
     const maxTW = this.OptCanvas.measureText(max).width
 
     const minX = ChartSize.getInstance().GetLeft() + (ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0] + ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1]) * minIndex
-    const minY = this.ValueHeight - (min - this.Option['yAxis'].Min) * this.UnitPricePx + ChartSize.getInstance().GetTop()
+    const minY = this.ValueHeight - (min - this.Option['yAxis'].Min) * this.UnitPricePx + ChartSize.getInstance().GetTop() + ChartSize.getInstance().GetTitleHeight()
     const minTW = this.OptCanvas.measureText(min).width
 
     this.Canvas.fillStyle = g_GoTopChartResource.FontLightColor
@@ -1598,6 +1680,10 @@ function ChartFramePainting () {
 
   }
 
+  this.DrawChartPaint = function (callback) {
+    callback()
+  }
+
   this.SetTitleCurValue = function (curValue) {
     this.ChartTitlePainting.SetValue(curValue)
   }
@@ -1724,13 +1810,14 @@ function ChartDrawPicture () {
   this.Canvas
   this.Option
 
-  this.Position
+  this.Position = new Array()
   this.PointCount
 
   this.Color
-  this.IsFinished
-  this.IsSelect
-  this.IsHover
+  this.IsFinished = false
+  this.IsSelect = false
+  this.IsHover = false
+  this.Name
 
   this.Create = function (canvas, option) {
     this.Canvas = canvas
@@ -1739,10 +1826,13 @@ function ChartDrawPicture () {
 
   this.SetPoint = function (x, y) {
     if (this.IsFinished) return
-    var index = Math.ceil(x / (ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1] + ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0])) + ChartData.getInstance().DataOffSet + 1 - ChartSize.getInstance().ScreenKNum()
-    var price = ((((this.Option['height'] - ChartSize.getInstance().GetExtraHeight() - (y - this.Option['position']['top'] - ChartSize.getInstance().GetTop() - ChartSize.getInstance().GetTitleHeight()))) / this.Option['yAxis'].unitPricePx) + this.Option['yAxis'].Min)
+    var leftDatasIndex = ChartData.getInstance().DataOffSet + 1 - ChartSize.getInstance().ScreenKNum()
+    var index = Math.ceil((x - ChartSize.getInstance().GetLeft()) / (ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1] + ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0])) + leftDatasIndex - 1
+    console.log(index, leftDatasIndex, ChartData.getInstance().DataOffSet, ChartSize.getInstance().ScreenKNum())
+    var price = (((this.Option['height'] - ChartSize.getInstance().GetExtraHeight() - (y - this.Option['position']['top'] - ChartSize.getInstance().GetTop() - ChartSize.getInstance().GetTitleHeight())) / this.Option['yAxis'].unitPricePx) + this.Option['yAxis'].Min)
     var item = [index, price]
     this.Position.push(item)
+    console.log('point', this.Position)
   }
 
   /**
@@ -1752,18 +1842,18 @@ function ChartDrawPicture () {
    * @param {move veri px} yStep 
    */
   this.UpdatePoint = function (i, xStep, yStep) {
-    var y = this.Option.height - ChartSize.getInstance().GetTop() - ChartSize.getInstance().GetBottom() - (this.Position[i][1] - this.Option['yAxis'].Min) * this.Option['yAxis'].unitPricePx + ChartSize.getInstance().GetTop() + this.Option.position.top
+    var y = this.Option.height - ChartSize.getInstance().GetExtraHeight() - (this.Position[i][1] - this.Option['yAxis'].Min) * this.Option['yAxis'].unitPricePx + ChartSize.getInstance().GetTop() + ChartSize.getInstance().GetTitleHeight() + this.Option.position.top
     y += yStep
-    this.Position[i][1] = ((((this.Option['height'] - ChartSize.getInstance().GetExtraHeight()) - (y - this.Option['position']['top'] - ChartSize.getInstance().GetTop())) / this.Option['yAxis'].unitPricePx) + this.Option['yAxis'].Min)
+    this.Position[i][1] = ((((this.Option['height'] - ChartSize.getInstance().GetExtraHeight()) - (y - this.Option['position']['top'] - ChartSize.getInstance().GetTop() - ChartSize.getInstance().GetTitleHeight())) / this.Option['yAxis'].unitPricePx) + this.Option['yAxis'].Min)
     this.Position[i][0] += xStep
   }
 
   this.Draw = function () { }
 
   this.DrawPoint = function () {
-    if (this.Position.length > 0 && this.IsSelect) {
+    if (this.Position.length > 0 && (this.IsSelect || this.IsHover)) {
       for (var i in this.Position) {
-        var x = (ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0] + ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1]) * (this.Position[i][0] - (ChartData.getInstance().DataOffSet + 1 - ChartSize.getInstance().ScreenKNum())) - ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0] / 2 - ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1] + this.Option.position.left
+        var x = (ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0] + ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1]) * (this.Position[i][0] - (ChartData.getInstance().DataOffSet + 1 - ChartSize.getInstance().ScreenKNum()) + 1) - ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0] / 2 - ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1] + this.Option.position.left + ChartSize.getInstance().GetLeft()
         var y = this.Option.height - ChartSize.getInstance().GetExtraHeight() - (this.Position[i][1] - this.Option['yAxis'].Min) * this.Option['yAxis'].unitPricePx + ChartSize.getInstance().GetTop() + ChartSize.getInstance().GetTitleHeight() + this.Option.position.top
 
         this.Canvas.beginPath();
@@ -1780,26 +1870,34 @@ function ChartDrawPicture () {
   this.ClipFrame = function (x, y) {
     this.Canvas.save()
     this.Canvas.beginPath()
-    this.Canvas.rect(this.Option.position.left + ChartSize.getInstance().GetLeft(), this.Option.position.top + ChartSize.getInstance().GetTop() + ChartSize.getInstance().GetTitleHeight(), this.Option.width - ChartSize.getInstance().GetRight(), this.Option.height - ChartSize.getInstance().GetBottom())
+    this.Canvas.rect(this.Option.position.left + ChartSize.getInstance().GetLeft(), this.Option.position.top + ChartSize.getInstance().GetTop() + ChartSize.getInstance().GetTitleHeight(), this.Option.width - ChartSize.getInstance().GetLeft() - ChartSize.getInstance().GetRight(), this.Option.height - ChartSize.getInstance().GetExtraHeight())
     this.Canvas.clip()
   }
 
   this.IsPointInPath = function (x, y) {
+    if (this.Name === 'line') {
+      return this.IsPointInLinePath(x, y)
+    } else if (this.Name === 'rect') {
+      return this.IsPointInRectPath(x, y)
+    }
+  }
+
+  this.IsPointInLinePath = function (x, y) {
     if (!this.Option) return -1
     if (this.Position.length < this.PointCount) return -1
 
     var leftDatasIndex = ChartData.getInstance().DataOffSet + 1 - ChartSize.getInstance().ScreenKNum()
     for (let i in this.Position) {
       this.Canvas.beginPath();
-      var ex = (ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0] + ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1]) * (this.Position[i][0] - leftDatasIndex) - ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0] / 2 - ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1] + this.Option.position.left
+      var ex = (ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0] + ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1]) * (this.Position[i][0] - leftDatasIndex + 1) - ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0] / 2 - ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1] + this.Option.position.left + ChartSize.getInstance().GetLeft()
       var ey = this.Option.height - ChartSize.getInstance().GetExtraHeight() - (this.Position[i][1] - this.Option['yAxis'].Min) * this.Option['yAxis'].unitPricePx + ChartSize.getInstance().GetTop() + ChartSize.getInstance().GetTitleHeight() + this.Option.position.top
       this.Canvas.arc(ex, ey, 5, 0, 360);
       if (this.Canvas.isPointInPath(x, y)) return i;
     }
 
-    var x1 = (ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0] + ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1]) * (this.Position[0][0] - leftDatasIndex) - ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0] / 2 - ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1] + this.Option.position.left
+    var x1 = (ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0] + ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1]) * (this.Position[0][0] - leftDatasIndex + 1) - ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0] / 2 - ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1] + this.Option.position.left + ChartSize.getInstance().GetLeft()
     var y1 = this.Option.height - ChartSize.getInstance().GetExtraHeight() - (this.Position[0][1] - this.Option['yAxis'].Min) * this.Option['yAxis'].unitPricePx + ChartSize.getInstance().GetTop() + ChartSize.getInstance().GetTitleHeight() + this.Option.position.top
-    var x2 = (ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0] + ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1]) * (this.Position[1][0] - leftDatasIndex) - ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0] / 2 - ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1] + this.Option.position.left
+    var x2 = (ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0] + ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1]) * (this.Position[1][0] - leftDatasIndex + 1) - ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0] / 2 - ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1] + this.Option.position.left + ChartSize.getInstance().GetLeft()
     var y2 = this.Option.height - ChartSize.getInstance().GetExtraHeight() - (this.Position[1][1] - this.Option['yAxis'].Min) * this.Option['yAxis'].unitPricePx + ChartSize.getInstance().GetTop() + ChartSize.getInstance().GetTitleHeight() + this.Option.position.top
     this.Canvas.beginPath()
     if (x1 == x2) {
@@ -1827,39 +1925,40 @@ function ChartDrawPicture () {
     var leftDatasIndex = ChartData.getInstance().DataOffSet + 1 - ChartSize.getInstance().ScreenKNum()
     for (let i in this.Position) {
       this.Canvas.beginPath();
-      var ex = (ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0] + ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1]) * (this.Position[i][0] - leftDatasIndex) - ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0] / 2 - ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1] + this.Option.position.left
+      var ex = (ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0] + ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1]) * (this.Position[i][0] - leftDatasIndex + 1) - ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0] / 2 - ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1] + this.Option.position.left + ChartSize.getInstance().GetLeft()
       var ey = this.Option.height - ChartSize.getInstance().GetExtraHeight() - (this.Position[i][1] - this.Option['yAxis'].Min) * this.Option['yAxis'].unitPricePx + ChartSize.getInstance().GetTop() + ChartSize.getInstance().GetTitleHeight() + this.Option.position.top
       this.Canvas.arc(ex, ey, 5, 0, 360);
       if (this.Canvas.isPointInPath(x, y)) return i;
     }
-
-    var x1 = (ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0] + ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1]) * (this.Position[0][0] - leftDatasIndex) - ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0] / 2 - ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1] + this.Option.position.left
+    var x1 = (ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0] + ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1]) * (this.Position[0][0] - leftDatasIndex + 1) - ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0] / 2 - ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1] + this.Option.position.left + ChartSize.getInstance().GetLeft()
     var y1 = this.Option.height - ChartSize.getInstance().GetExtraHeight() - (this.Position[0][1] - this.Option['yAxis'].Min) * this.Option['yAxis'].unitPricePx + ChartSize.getInstance().GetTop() + ChartSize.getInstance().GetTitleHeight() + this.Option.position.top
-    var x2 = (ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0] + ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1]) * (this.Position[1][0] - leftDatasIndex) - ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0] / 2 - ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1] + this.Option.position.left
+    var x2 = (ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0] + ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1]) * (this.Position[1][0] - leftDatasIndex + 1) - ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0] / 2 - ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1] + this.Option.position.left + ChartSize.getInstance().GetLeft()
     var y2 = this.Option.height - ChartSize.getInstance().GetExtraHeight() - (this.Position[1][1] - this.Option['yAxis'].Min) * this.Option['yAxis'].unitPricePx + ChartSize.getInstance().GetTop() + ChartSize.getInstance().GetTitleHeight() + this.Option.position.top
-
     //是否在矩形边框上
     var linePoint = [{ X: x1, Y: y1 }, { X: x2, Y: y1 }];
-    if (this.IsPointInLine(linePoint, x, y))
+    if (this.IsPointInLine1(linePoint, x, y)) {
       return 100;
+    }
 
     linePoint = [{ X: x2, Y: y1 }, { X: x2, Y: y2 }];
-    if (this.IsPointInLine2(linePoint, x, y))
+    if (this.IsPointInLine2(linePoint, x, y)) {
       return 100;
+    }
 
     linePoint = [{ X: x2, Y: y2 }, { X: x1, Y: y2 }];
-    if (this.IsPointInLine(linePoint, x, y))
+    if (this.IsPointInLine1(linePoint, x, y)) {
       return 100;
+    }
 
     linePoint = [{ X: x1, Y: y2 }, { X: x1, Y: y1 }];
-    if (this.IsPointInLine2(linePoint, x, y))
+    if (this.IsPointInLine2(linePoint, x, y)) {
       return 100;
-
+    }
     return -1;
   }
 
   //点是否在线段上 水平线段
-  this.IsPointInLine = function (aryPoint, x, y) {
+  this.IsPointInLine1 = function (aryPoint, x, y) {
     this.Canvas.beginPath();
     this.Canvas.moveTo(aryPoint[0].X, aryPoint[0].Y + 5);
     this.Canvas.lineTo(aryPoint[0].X, aryPoint[0].Y - 5);
@@ -1890,19 +1989,20 @@ function LineElement () {
   delete this.newMethod
 
   this.PointCount = 2
+  this.Color = g_GoTopChartResource.LineColor[0]
 
   this.Draw = function (x, y) {
     if (this.Position.length == 0) return
     var startX, startY, endX, endY
     var leftDatasIndex = ChartData.getInstance().DataOffSet + 1 - ChartSize.getInstance().ScreenKNum()
-    startX = (ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0] + ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1]) * (this.Position[0][0] - leftDatasIndex) - ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0] / 2 - ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1] + this.Option.position.left
+    startX = (ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0] + ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1]) * (this.Position[0][0] - leftDatasIndex + 1) - ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0] / 2 - ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1] + this.Option.position.left + ChartSize.getInstance().GetLeft()
     startY = this.Option.height - ChartSize.getInstance().GetExtraHeight() - (this.Position[0][1] - this.Option['yAxis'].Min) * this.Option['yAxis'].unitPricePx + ChartSize.getInstance().GetTop() + ChartSize.getInstance().GetTitleHeight() + this.Option.position.top
     if (this.Position.length == this.PointCount) {
-      endX = (ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0] + ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1]) * (this.Position[1][0] - leftDatasIndex) - ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0] / 2 - ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1] + this.Option.position.left
+      endX = (ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0] + ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1]) * (this.Position[1][0] - leftDatasIndex + 1) - ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0] / 2 - ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1] + this.Option.position.left + ChartSize.getInstance().GetLeft()
       endY = this.Option.height - ChartSize.getInstance().GetExtraHeight() - (this.Position[1][1] - this.Option['yAxis'].Min) * this.Option['yAxis'].unitPricePx + ChartSize.getInstance().GetTop() + ChartSize.getInstance().GetTitleHeight() + this.Option.position.top
     } else {
-      var index = Math.ceil(x / (ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1] + ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0])) + leftDatasIndex
-      endX = (ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0] + ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1]) * (index - leftDatasIndex) - ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0] / 2 - ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1] + this.Option.position.left
+      var index = Math.ceil((x - ChartSize.getInstance().GetLeft()) / (ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1] + ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0])) + leftDatasIndex - 1
+      endX = (ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0] + ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1]) * (index - leftDatasIndex + 1) - ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0] / 2 - ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1] + this.Option.position.left + ChartSize.getInstance().GetLeft()
       endY = y
     }
     this.ClipFrame()
@@ -1926,19 +2026,21 @@ function RectElement () {
   delete this.newMethod
 
   this.PointCount = 2
+  this.Color = g_GoTopChartResource.SelectColor
+  this.FillColor = g_GoTopChartResource.RectBgColor
 
-  this.Draw = function () {
+  this.Draw = function (x, y) {
     if (this.Position.length == 0) return
     var startX, startY, endX, endY
     var leftDatasIndex = ChartData.getInstance().DataOffSet + 1 - ChartSize.getInstance().ScreenKNum()
-    startX = (ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0] + ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1]) * (this.Position[0][0] - leftDatasIndex) - ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0] / 2 - ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1] + this.Option.position.left
+    startX = (ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0] + ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1]) * (this.Position[0][0] - leftDatasIndex + 1) - ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0] / 2 - ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1] + this.Option.position.left + ChartSize.getInstance().GetLeft()
     startY = this.Option.height - ChartSize.getInstance().GetExtraHeight() - (this.Position[0][1] - this.Option['yAxis'].Min) * this.Option['yAxis'].unitPricePx + ChartSize.getInstance().GetTop() + ChartSize.getInstance().GetTitleHeight() + this.Option.position.top
     if (this.Position.length == this.PointCount) {
-      endX = (ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0] + ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1]) * (this.Position[1][0] - leftDatasIndex) - ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0] / 2 - ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1] + this.Option.position.left
+      endX = (ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0] + ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1]) * (this.Position[1][0] - leftDatasIndex + 1) - ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0] / 2 - ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1] + this.Option.position.left + ChartSize.getInstance().GetLeft()
       endY = this.Option.height - ChartSize.getInstance().GetExtraHeight() - (this.Position[1][1] - this.Option['yAxis'].Min) * this.Option['yAxis'].unitPricePx + ChartSize.getInstance().GetTop() + ChartSize.getInstance().GetTitleHeight() + this.Option.position.top
     } else {
-      var index = Math.ceil(x / (ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1] + ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0])) + leftDatasIndex
-      endX = (ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0] + ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1]) * (index - leftDatasIndex) - ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0] / 2 - ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1] + this.Option.position.left
+      var index = Math.ceil((x - ChartSize.getInstance().GetLeft()) / (ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1] + ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0])) + leftDatasIndex - 1
+      endX = (ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0] + ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1]) * (index - leftDatasIndex + 1) - ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0] / 2 - ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1] + this.Option.position.left + ChartSize.getInstance().GetLeft()
       endY = y
     }
     this.ClipFrame()
@@ -1968,32 +2070,41 @@ function DivDialog () {
 
   }
 
-  this.SetPosition = function () {
-
+  this.SetPosition = function (x, y) {
+    this.DivElement.style.left = x + 'px'
+    this.DivElement.style.top = y + 'px'
   }
 
   this.SetShow = function () {
-
+    this.isHide = false
+    this.DivElement.style.display = 'flex'
   }
 
   this.SetHide = function () {
-
+    this.isHide = true
+    this.DivElement.style.display = 'none'
   }
 
   this.GetPosition = function () {
-
+    return {
+      x: parseFloat(this.DivElement.style.left.replace('px', '')),
+      y: parseFloat(this.DivElement.style.top.replace('px', ''))
+    }
   }
 
   this.GetHeight = function () {
-
+    return this.DivElement.offsetHeight
   }
 
   this.GetWidth = function () {
 
   }
 
-  this.RegisterClickEvent = function () {
-
+  this.RegisterClickEvent = function (callback) {
+    $('#draw-tool-opt_delete').click(function (e) {
+      callback('delete')
+      e.preventDefault()
+    })
   }
 }
 
@@ -2002,6 +2113,20 @@ function DrawPictureOptDialog () {
   this.newMethod = DivDialog
   this.newMethod()
   delete this.newMethod
+
+  this.Create = function () {
+    this.DivElement = document.createElement('div')
+    this.DivElement.className = 'draw-tool-opt-dialog'
+    this.DivElement.id = 'draw-tool-opt-dialog'
+    this.DivElement.style.display = 'none'
+    this.DivElement.style.width = ChartSize.getInstance().DrawPictureOptDialogWidth + 'px'
+    this.DivElement.innerHTML =
+      '<div class="item" style="width:' + ChartSize.getInstance().DrawPictureOptDialogWidth + 'px" id="draw-tool-opt_delete"><span class="iconfont icon-shanchu1"></span><span style="margin-left:10px">删除</span><span class="label">Del</span></div>'
+    this.DivElement.oncontextmenu = function (e) {
+      e.preventDefault()
+    }
+    return this.DivElement
+  }
 }
 
 // 周期选择创库
