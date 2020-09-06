@@ -55,13 +55,22 @@ function GoTopChart (element) {
       this.Chart.SetFrameOption()
       this.Chart.SetChartFrameList()
       // 数据请求后进行回调
+      var start = null
+      // 离线模式需要确定start，在线模式不需要start和end，因为接口自动获取最新的已完成周期K线数据，还未完成的周期K线数据需要使用 websocket 获取
+      if (this.Chart.Mode == 0) {
+        start = 1577808000000
+      }
       this.Chart.RequestNewData(this.Chart.Period, function (res) {
         ChartData.getInstance().DataOffSet = ChartData.getInstance().PeriodData[self.Chart.Period].Data.length - 1   // 初始化 DataOffSet
-        self.Chart.LoadIndicatorData(ChartData.getInstance().PeriodData[self.Chart.Period].Data, 'new')                   // 加载指标数据
-        self.Chart.SplitData()    // 数据剪切
-        self.Chart.Loaded()       // 关闭loading窗口
-        self.Chart.Draw()         // 数据准备完成，开始绘制
-      }, 1577808000000, null)
+        self.Chart.LoadIndicatorData(ChartData.getInstance().PeriodData[self.Chart.Period].Data, 'new')   // 加载指标数据
+        if (self.Chart.Mode == 1) {
+          self.Chart.RequestRealTimeData()  // 开启websocket 实时请求K线最新数据
+        } else {
+          self.Chart.SplitData()    // 数据剪切
+          self.Chart.Loaded()       // 关闭loading窗口
+          self.Chart.Draw()         // 数据准备完成，开始绘制
+        }
+      }, start, null)
     } else {
       this.Chart.ChartElement = this.ChartElement
       this.Chart.Resize()
@@ -101,6 +110,8 @@ function GoTopChartComponent () {
 
   this.CrossCursor = new CrossCursor()          // 光标
 
+  // websocket
+  this.JSWebSocket
 
   // canvas
   this.ChartElement
@@ -133,8 +144,10 @@ function GoTopChartComponent () {
   }
   this.Status = 0             //  0光标模式、1数据拖动、2画图工具
   this.Period = "1m"          // 当前周期；周期是全局的，所以进行统一控制
+  this.Symbol                 // 标的物
 
-  this.KLinesUrl = g_GoTopChartResource.Domain + '/api/v3/klines'
+  this.KLinesUrl = g_GoTopChartResource.Domain + '/api/v3/klines'   //请求K线数据
+  this.KLineStreams = 'wss://stream.binance.com:9443/'              //实时请求K线数据
 
   var self = this
 
@@ -153,7 +166,6 @@ function GoTopChartComponent () {
   }
 
   this.CreateElement = function () {
-    this.RequestRealTimeData()
     // 加载loading element
     this.LoadElement = document.createElement('div')
     this.LoadElement.className = "load-ele"
@@ -234,6 +246,8 @@ function GoTopChartComponent () {
     this.Period = this.Options.KLine.Period
     // mode
     this.Mode = this.Options.Mode
+    //symbol
+    this.Symbol = this.Options.Symbol
     // xAxis
     this.XOption.height = ChartSize.getInstance().XAxisHeight
     this.XOption.width = ChartSize.getInstance().ChartContentWidth - ChartSize.getInstance().YAxisWidth
@@ -323,7 +337,9 @@ function GoTopChartComponent () {
           break;
       }
     }
-
+    // 更新 title value
+    this.UpdateTitleCurValue(ChartData.getInstance().Data.length - 1)
+    // 更新 画布
     for (let i in this.DrawPictureToolList) {
       this.DrawPictureToolList[i].Canvas && this.DrawPictureToolList[i].Draw(null, null)
     }
@@ -358,7 +374,6 @@ function GoTopChartComponent () {
   }
 
   this.OptCanvasElement.onmousemove = function (e) {
-    console.log('move')
     if (self.IsLoadData || !self.DrawPictureOptDialog.IsHide) {
       return
     }
@@ -386,7 +401,6 @@ function GoTopChartComponent () {
         var isPointInPath = -1
         for (let d in self.DrawPictureToolList) {
           isPointInPath = self.DrawPictureToolList[d].IsPointInPath(obj.x, obj.y)
-          console.log('hover', isPointInPath)
           if (isPointInPath == -1) {
             continue
           }
@@ -434,7 +448,6 @@ function GoTopChartComponent () {
   }
 
   this.OptCanvasElement.onmousedown = function (e) {
-    console.log('down')
     if (self.IsLoadData) return // 数据加载中，不执行点击逻辑
 
     var obj = self.GetFixOffSetYX(e.clientX, e.clientY)   // 计算出当前鼠标在 画布中的 x 和 y
@@ -539,7 +552,6 @@ function GoTopChartComponent () {
   }
 
   this.OptCanvasElement.onmouseup = function (e) {
-    console.log('up', e.button)
     if (!e) e = window.event
     var obj = self.GetFixOffSetYX(e.clientX, e.clientY)
     self.Drag = false
@@ -631,8 +643,8 @@ function GoTopChartComponent () {
         // "X-MBX-APIKEY": "gIu5ec7EO6ziqUIyL6btfVSpHVvU77J17p9gQpkMexBL6FI94HBukLRhvB51a2Wz"
       },
       data: {
-        "symbol": "BNBUSDT",
-        "interval": "1m",
+        "symbol": this.Symbol,
+        "interval": this.Period,
         "limit": ChartData.getInstance().Limit,
         "startTime": start,
         "endTime": end
@@ -647,7 +659,6 @@ function GoTopChartComponent () {
   }
 
   this.RequestNewData = function (period, callback, start, end) {
-    if (start == null && end == null) return
     this.Loading()
     // 判断数据是否存在，不存在则调用接口获取
     if (ChartData.getInstance().PeriodData[period]
@@ -666,31 +677,76 @@ function GoTopChartComponent () {
         start = ChartData.getInstance().GetEndTimeOfPeriodData(this.Period)
       }
     }
+
+    var params = {
+      "symbol": this.Symbol,
+      "interval": this.Period,
+      "limit": ChartData.getInstance().Limit,
+    }
+    if (start) {
+      params.startTime = start
+    }
+
     JSNetwork.HttpRequest({
       url: this.KLinesUrl,
       headers: {
         // "X-MBX-APIKEY": "gIu5ec7EO6ziqUIyL6btfVSpHVvU77J17p9gQpkMexBL6FI94HBukLRhvB51a2Wz"
       },
-      data: {
-        "symbol": "BNBUSDT",
-        "interval": "1m",
-        "limit": ChartData.getInstance().Limit,
-        "startTime": start,
-        // "endTime": end
-      },
+      data: params,
       type: "get",
       dataType: "json",
       async: true,
-      success: function (data) {
-        self.ProcessNewData(data, period, callback)
+      success: function (res) {
+        self.ProcessNewData(res, period, callback)
       }
     })
   }
 
   this.RequestRealTimeData = function () {
-    JSWebSocket.Connect({
-      url: "wss://stream.binance.com:9443/ws/BNBUSDT@kline_1m"
-    })
+    var p = {
+      "method": "SUBSCRIBE",
+      "params":
+        [
+          this.Symbol.toLowerCase() + "@kline_" + this.Period,
+        ],
+      "id": 1
+    }
+    if (!this.JSWebSocket) {
+      this.JSWebSocket = new JSWebSocket(this.KLineStreams + 'ws/' + this.Symbol + '@kline_' + this.Period, this.ProcessRealTimeData, JSON.stringify(p), "klineStream")
+    }
+    this.JSWebSocket.connect()
+  }
+
+  this.ProcessRealTimeData = function (res) {
+    res = JSON.parse(res)
+    if (!res.e) return
+    var dataObj = new DataObj()
+    dataObj.datetime = res.k.t
+    dataObj.closetime = res.k.T
+    dataObj.open = res.k.o
+    dataObj.close = res.k.c
+    dataObj.high = res.k.h
+    dataObj.low = res.k.l
+    dataObj.volume = res.k.v
+    if (ChartData.getInstance().PeriodData[self.Period].Data[ChartData.getInstance().PeriodData[self.Period].Data.length - 1].datetime == dataObj.datetime) {
+      ChartData.getInstance().PeriodData[self.Period].Data[ChartData.getInstance().PeriodData[self.Period].Data.length - 1] = dataObj
+    } else {
+      ChartData.getInstance().DataOffSet++
+      ChartData.getInstance().PeriodData[self.Period].Data.push(dataObj)
+    }
+    var length = ChartData.getInstance().PeriodData[self.Period].Data.length
+    if (length > 100) {
+      ChartData.getInstance().BorrowKLineNum = 100
+    } else {
+      ChartData.getInstance().BorrowKLineNum = length - 1 // 减掉websocket最新的一根K线
+    }
+    self.ClearMainCanvas()
+    self.ClearOptCanvas()
+    var leftIndex = ChartData.getInstance().PeriodData[self.Period].Data.length - ChartData.getInstance().BorrowKLineNum - 1
+    self.LoadIndicatorData(ChartData.getInstance().PeriodData[self.Period].Data.slice(leftIndex, ChartData.getInstance().PeriodData[self.Period].Data.length), 'new')
+    self.SplitData()
+    self.Loaded()
+    self.Draw()
   }
 
   this.ProcessHistoryData = function (data, period, callback) {
@@ -800,8 +856,12 @@ function GoTopChartComponent () {
 
   this.ProcessIndicatorNewData = function (indicator, data, isExist) {
     if (isExist) {
-      data = data.slice(ChartData.getInstance().BorrowKLineNum, -1)
-      this.IndicatorDataList[indicator].PeriodData[this.Period].Data = this.IndicatorDataList[indicator].PeriodData[this.Period].Data.concat(data)
+      data = data.slice(ChartData.getInstance().BorrowKLineNum, data.length)
+      if (this.IndicatorDataList[indicator].PeriodData[this.Period].Data[this.IndicatorDataList[indicator].PeriodData[this.Period].Data.length - 1].xIndex == data[data.length - 1].xIndex) {
+        this.IndicatorDataList[indicator].PeriodData[this.Period].Data[this.IndicatorDataList[indicator].PeriodData[this.Period].Data.length - 1] = data[data.length - 1]
+      } else {
+        this.IndicatorDataList[indicator].PeriodData[this.Period].Data = this.IndicatorDataList[indicator].PeriodData[this.Period].Data.concat(data)
+      }
     } else {
       this.IndicatorDataList[indicator].PeriodData[this.Period].Data = data
     }
@@ -996,10 +1056,16 @@ function GoTopChartComponent () {
       leftDatasIndex = 0
     }
     // K线数据
-    ChartData.getInstance().Data = ChartData.getInstance().PeriodData[this.Period].Data.slice(leftDatasIndex, ChartData.getInstance().DataOffSet == ChartData.getInstance().PeriodData[this.Period].Data.length - 1 ? -1 : ChartData.getInstance().DataOffSet)
+    var rightDatasIndex
+    if (ChartData.getInstance().DataOffSet == ChartData.getInstance().PeriodData[this.Period].Data.length - 1) {
+      rightDatasIndex = ChartData.getInstance().PeriodData[this.Period].Data.length
+    } else {
+      rightDatasIndex = ChartData.getInstance().DataOffSet
+    }
+    ChartData.getInstance().Data = ChartData.getInstance().PeriodData[this.Period].Data.slice(leftDatasIndex, rightDatasIndex)
     // 指标数据
     for (let i in this.IndicatorDataList) {
-      this.IndicatorDataList[i].Data = this.IndicatorDataList[i].PeriodData[this.Period].Data.slice(leftDatasIndex, ChartData.getInstance().DataOffSet == ChartData.getInstance().PeriodData[this.Period].Data.length - 1 ? -1 : ChartData.getInstance().DataOffSet)
+      this.IndicatorDataList[i].Data = this.IndicatorDataList[i].PeriodData[this.Period].Data.slice(leftDatasIndex, rightDatasIndex)
     }
   }
 
@@ -1828,11 +1894,9 @@ function ChartDrawPicture () {
     if (this.IsFinished) return
     var leftDatasIndex = ChartData.getInstance().DataOffSet + 1 - ChartSize.getInstance().ScreenKNum()
     var index = Math.ceil((x - ChartSize.getInstance().GetLeft()) / (ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1] + ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0])) + leftDatasIndex - 1
-    console.log(index, leftDatasIndex, ChartData.getInstance().DataOffSet, ChartSize.getInstance().ScreenKNum())
     var price = (((this.Option['height'] - ChartSize.getInstance().GetExtraHeight() - (y - this.Option['position']['top'] - ChartSize.getInstance().GetTop() - ChartSize.getInstance().GetTitleHeight())) / this.Option['yAxis'].unitPricePx) + this.Option['yAxis'].Min)
     var item = [index, price]
     this.Position.push(item)
-    console.log('point', this.Position)
   }
 
   /**
