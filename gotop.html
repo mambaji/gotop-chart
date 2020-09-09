@@ -14,6 +14,8 @@
 <body>
   <script src="./datas/datas.js"></script>
   <script src="./static/js/jquery.min.js"></script>
+  <script src="./plugs/laydate/laydate.js"></script>
+  <script src="./datas/chan.js"></script>
   <script src="./gotopchart.js"></script>
   <script src="./gotopchart.network.js"></script>
   <script src="./gotopchart.socket.js"></script>
@@ -32,17 +34,56 @@
         [
           {
             Index: 'MACD',
+            Type: 'system',
+            RequestType: 'local',
+            DataType: 1,
+            Location: 'pair',
+            Precision: 2,
             Params: {
               FastLength: 12,
               SlowLength: 26
             },
             Key: ['DIFF', 'DEA', 'MACD'],
+            Plots: [{ id: 'DIFF', type: 'line' }, { id: 'DEA', type: 'line' }, { id: 'MACD', type: 'rect' }],
             Style: {
-              DIFF: '#0094ff',
-              DEA: '#ff6a00',
+              DIFF: {
+                name: 'DIFF',
+                color: '#0094ff'
+              },
+              DEA: {
+                name: 'DEA',
+                color: '#ff6a00'
+              },
               MACD: {
-                UP: '#26a69a',
-                DOWN: '#ef5350'
+                name: 'MACD',
+                color: {
+                  up: '#26a69a',
+                  down: '#ef5350'
+                }
+              }
+            }
+          }, {
+            Index: 'CHAN',
+            Type: 'custom',
+            RequestType: 'network',
+            DataType: 0,
+            Location: 'main',
+            Precision: 2,
+            Params: {
+
+            },
+            Key: ['BI'],
+            Plots: [{ id: 'BI', type: 'line' }, { id: 'DUAN', type: 'line' }],
+            Style: {
+              BI: {
+                name: 'BI',
+                lineWidth: 1,
+                color: '#ffff00'
+              },
+              DUAN: {
+                name: 'DUAN',
+                lineWidth: 2,
+                color: '#26decd'
               }
             }
           }
@@ -89,6 +130,17 @@
       chart.OnSize();
       chart.SetOption(options)
     })
+    laydate.render({
+      elem: '#date-d', //指定元素
+      type: 'date',
+      theme: '#2c3450',
+      trigger: 'click'
+    });
+    laydate.render({
+      elem: '#time-d', //指定元素
+      type: 'time',
+      theme: '#2c3450',
+    });
   </script>
 </body>
 

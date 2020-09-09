@@ -124,6 +124,203 @@
          3. 绘制FrameList
 2. 把创建和赋值拆分开来，后面再封装函数的时候更容易去调用
 
+## 自定义绘图
+此调用会在主数据列上指定点位创建一个形状。
+```js
+createMultipointShape(points, options, callback)
+1. point: object {time, [price], [channel]}
+   1. time: unix time. 唯一的强制性参数。
+   2. price: 如果您指定price, 如果您指定“price”，则您的图标将被放置在其水平之上。 如果没有指定，则图标会在相应的时间粘贴到K线上。
+   3. channel: 要保持价格水平线，要使用channel 参数 (open, high, low, close)。如果未指定则以’open’为默认值。
+2. options: object {shape, [text], [lock], [overrides]}
+   1. shape 可能的值为[‘arrow_up’, ‘arrow_down’, ‘flag’, ‘vertical_line’, ‘horizontal_line’]，’flag’为默认值。
+   2. text 图形的内容
+   3. lock 是否锁定图形
+   4. disableSelection (since 1.3) 禁用选择
+   5. disableSave (since 1.3) 禁用保存
+   6. disableUndo (since 1.4) 禁用撤销
+   7. overrides (since 1.2). 它是一个对象，包含为新图形设置的属性。
+   8. zOrder (since 1.3) 可能的值为[top, bottom]. top 将线工具放在所有其他资源之上, bottom 将线工具放在所有其他资源之下, ‘top’为默认值。
+   9. showInObjectsTree: true为默认值。在“对象树”对话框中显示图形。
+3. callback: function(entityId)
+```
+## 自定义指标模板
+1. 基本属性
+   1. 名称、id、描述、版本
+2. 计算参数
+3. 显示窗口：主图或副图
+4. 结果输出：指标输出的结果数值进行图表展现
+   1. 结果对象id、结果对象名称
+   2. 结果绘图类型（线段or直方图
+   3. 结果绘制样式
+5. 画图：通过画图工具对象进行绘制
+
+> 结果输出和画图的区别在于，结果输出
+
+### 数据
+  plot 对应的是指标输出值，也对应指标配置项中的绘图方式；
+  绘制指标多个结果的时候，有多少个结果就得遍历多少次，如果绘制图形类型是不连续性的（图标、矩形、文字），就可以集中在K线的遍历中进行绘制。如果绘图类型是连续性的（曲线），那么必须放置在单独的循环遍历中进行绘制。不过对于不连续性图形的绘制方式，会导致canvas不断的begin和close。如果全部绘图类型都采用单独的循环遍历进行绘制的话，每次就必须要先确定好当前屏幕显示的K线数据对应的指标结果，而不是所有的，这样就可以控制好数据量的大小，来保证绘制的效率，**所以如何快速确定好对应的指标结果就是一个突破点**
+  ： （1. **数据集的长度跟K线一致，这样就能跟随K线的偏移量来快速定位要显示的数据集范围**；2. **除了这种方式之外，快速定位就必须要求数据集是字典类型，在遍历K线的时候，通过datetime为键来寻找对应的指标数据**。
+  
+  1. 所以**不管后端返回的结果数据集**是合并还是拆分，对图表的绘制影响都不大。
+  
+  2. 对于**数据集量比较小**的，通过遍历数据集来判断当前遍历对象是否存在屏幕内来进行绘制效率会更高。
+
+  3. 对于**数据集量大**的，就需要通过遍历显示的K线数据来查找对应的数据集这种方式的效率更高。
+
+  4. 对于**数据集长度跟K线数据长度一致**的指标结果，偏移量截取，并针对自身遍历绘制的方式效率会更高。
+
+  5. 对于**区分不连续性和连续性图形**来决定是多次遍历绘制还是单次遍历统一绘制，可以提供一定效率。
+  6. 对于不连续性的图形（排除图标），必须该图形涉及范围的K线数据都显示出来才会显示，不然就无法显示，这种体验效果就差很多。对于这些不连续图形的数据集，是无法获取到上一个数据的，因为map是无序的，如果使用list，处理方式会比较麻烦，编写效果不友好。对于目前来说，线段和矩形这种不连续性图形，使用已有的drawPicture对象来表示会比较方便合理。但是如果把指标结果处理为drawPicture，数据量一大，每次都需要对所有的drawpicture进行绘制，会导致效率降低，除非能够判断当前显示的K线对应的drawPicture有哪些，这种方式也不是说无法实现，而是实现起来比较复杂。
+
+
+- ```json
+  data:{
+     datetime:{
+        plot0:{   // 矩形
+           value:[12,23,16,43]
+        },
+        plot1:{   // 曲线
+           value:12
+        },
+        plot2:{   // 文字
+           value:13,
+           text:"高点"
+        },
+        plot3:{   // 图表
+           value:14,
+           icon:1
+        }
+     }
+  }
+  ```
+- ```json
+   data:[
+      {
+        datetime:"2020-01-15 14:23:25",
+        plot0:{   // 矩形
+           value:[12,23,16,43]
+        },
+        plot1:{   // 曲线
+           value:12
+        },
+        plot2:{   // 文字
+           value:13,
+           text:"高点"
+        },
+        plot3:{   // 图表
+           value:14,
+           icon:1
+        }
+      }
+   ]
+  ```
+
+- ```json
+  plot0:{
+     datetime:{
+         value:11,
+         text:"高点"
+      },
+      datetime:{
+         value:12,
+         text:"低点"
+      }
+   }
+   plot1:{
+      datetime:{
+         value:11
+      },
+      datetime:{
+         value:12
+      }
+   }
+   plot2:{
+      datetime:{
+         value:14,
+         icon:1
+      },
+      datetime:{
+         value:12,
+         icon:2
+      }
+   }
+   plot3:{
+      datetime:{
+         value:[12,32,16,44]
+      }
+   }
+  ```
+   
+```json
+{
+    // 将<study name>替换为您的指标名称
+    // 它将由图表库内部使用
+    name: "<study name>",
+    metainfo: {
+        "_metainfoVersion": 40,
+        "id": "<study name>@tv-basicstudies-1",
+        "scriptIdPart": "",
+        "name": "<study name>",
+        // 此说明将显示在指标窗口中
+        // 当调用createStudy方法时，它也被用作“name”参数
+        "description": "<study description>",
+        // 该描述将显示在图表上
+        "shortDescription": "<short study description>",
+
+        "is_hidden_study": true,
+        "is_price_study": true,
+        "isCustomIndicator": true,
+
+        "plots": [{"id": "plot_0", "type": "line"}],
+        "defaults": {
+            "styles": {
+                "plot_0": {
+                    "linestyle": 0,
+                    "visible": true,
+
+                    // 绘图线宽度
+                    "linewidth": 2,
+
+                    // 绘制类型:
+                    //    1 - 直方图
+                    //    2 - 线形图
+                    //    3 - 十字指针
+                    //    4 - 山形图
+                    //    5 - 柱状图
+                    //    6 - 圆圈图
+                    //    7 - 中断线
+                    //    8 - 中断区块
+                    "plottype": 2,
+
+                    // 显示价格线?
+                    "trackPrice": false,
+
+                    // 绘制透明度，百分比。
+                    "transparency": 40,
+
+                    // 以#RRGGBB格式绘制颜色
+                    "color": "#0000FF"
+                }
+            },
+
+            // 指标输出值的精度
+            // (小数点后的位数)。
+            "precision": 2,
+
+            "inputs": {}
+        },
+        "styles": {
+            "plot_0": {
+                // 输出的名字将在样式窗口显示
+                "title": "-- output name --",
+                "histogramBase": 0,
+            }
+        },
+        "inputs": [],
+    },
+```
+
 
 ## 易错点
 1. return 只会返回到上一个方法，如果是多个方法嵌套的，它不会返回到最上层的方法，需要写多个return

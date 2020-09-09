@@ -1,4 +1,3 @@
-
 function GoTopChart (element) {
   this.DivElement = element
   this.DivElement.className = "main-div"
@@ -83,8 +82,20 @@ function GoTopChart (element) {
     if (self.Chart) self.Chart.CreateDrawPictureTool(e.currentTarget.id)
   })
 
-  this.TopToolContainer.RegisterClickEvent(function (e) {
-
+  this.TopToolContainer.RegisterClickEvent(function (id) {
+    switch (id) {
+      case 'goto_btn':
+        self.Chart.GoToDialog.SetShow()
+        break;
+      case 'period-btn':
+        break;
+      case 'indicators-btn':
+        break;
+      case 'pre-signal-btn':
+        break;
+      case 'next-signal-btn':
+        break;
+    }
   })
 }
 
@@ -102,6 +113,7 @@ function GoTopChartComponent () {
   this.Options
   this.XOption = {}         // X轴的配置，一个图标库中只有一个X轴，所以独立出来
   this.KLineOption = {}     // K线图表的配置
+  this.KLineChartFrameIndex  // 主图在ChartFrameList中的下标
   this.IndicatorDataList = {}          // 存放指标数据的list，如果指标窗口删除，则删除指定的指标
 
   this.ChartFramePaintingList = new Array()     // 存放图表框架绘制对象
@@ -124,6 +136,7 @@ function GoTopChartComponent () {
 
   this.XAxis
   this.DrawPictureOptDialog = new DrawPictureOptDialog()
+  this.GoToDialog = new GoToDialog()
 
   this.DataOffSet             // 当前数据偏移量：右游标
   this.Mode                   // 模式：0 离线、1 在线（实时获取数据）
@@ -148,6 +161,7 @@ function GoTopChartComponent () {
 
   this.KLinesUrl = g_GoTopChartResource.Domain + '/api/v3/klines'   //请求K线数据
   this.KLineStreams = 'wss://stream.binance.com:9443/'              //实时请求K线数据
+  this.IndicatorDataUrl = ""                                        // 自定义指标数据
 
   var self = this
 
@@ -161,6 +175,79 @@ function GoTopChartComponent () {
           self.DrawPictureIndex.CurSelectPoint != null && (self.DrawPictureIndex.CurSelectPoint = null)
           self.DrawPictureOptDialog.SetHide()
         }
+        break;
+      case 'goto':
+        var date = $('#date-d').val()
+        var time = $('#time-d').val()
+        var datetime = date + ' ' + time
+        datetime = date2TimeStamp(datetime)
+        console.log(datetime)
+        if (datetime === '') return
+        var length = ChartData.getInstance().PeriodData[self.Period].Data.length
+        if (datetime <= ChartData.getInstance().PeriodData[self.Period].Data[length - 1].datetime
+          && datetime >= ChartData.getInstance().PeriodData[self.Period].Data[0].datetime) {
+          var dataOffset = self.CalculationGoToKIndex(datetime)
+          if (dataOffset - ChartSize.getInstance().ScreenKNum < 0) {
+            // 跳转的游标使得第一根K线下标为负数，所以调整游标，这样就不需要去处理获取新数据的问题
+            ChartData.getInstance().DataOffSet = ChartSize.getInstance().ScreenKNum - 1
+          } else {
+            ChartData.getInstance().DataOffSet = parseInt(dataOffset)
+          }
+          console.log(dataOffset, ChartData.getInstance().DataOffSet)
+          self.ClearMainCanvas()
+          self.ClearOptCanvas()
+          self.Drag = false
+          self.SplitData()
+          self.Draw()
+          break;
+        }
+
+        if (datetime > ChartData.getInstance().PeriodData[self.Period].Data[length - 1].datetime) {
+          // 获取新数据
+          console.log('获取新数据')
+          self.Loading()
+          var start = ChartData.getInstance().PeriodData[self.Period].Data[length - 1].datetime
+          start = self.CalculationSpacingTimeStamp(start, 1, 'next')
+          self.RequestNewData(self.Period, function (res) {  // 请求新数据
+            ChartData.getInstance().DataOffSet = ChartData.getInstance().PeriodData[self.Period].Data.length - 1  // 将 DataOffSet 移到最后
+            var diffNum = ChartData.getInstance().PeriodData[self.Period].Data.length - ChartData.getInstance().NewData.length
+            if (diffNum > 100) {
+              ChartData.getInstance().BorrowKLineNum = 100
+            } else {
+              ChartData.getInstance().BorrowKLineNum = diffNum
+            }
+            var leftIndex = diffNum - ChartData.getInstance().BorrowKLineNum
+            self.LoadIndicatorData(ChartData.getInstance().PeriodData[self.Period].Data.slice(leftIndex, -1), 'new')
+            self.Loaded()
+            self.Drag = false
+            self.SplitData()
+            self.Draw()
+          }, start, datetime)
+        } else if (datetime < ChartData.getInstance().PeriodData[self.Period].Data[0].datetime) {
+          console.log('获取历史数据')
+          // 获取新的历史数据
+          self.Loading()
+          var end = ChartData.getInstance().PeriodData[self.Period].Data[0].datetime
+          end = self.CalculationSpacingTimeStamp(end, 1, 'last')
+          self.RequestHistoryData(self.Period, function (res) {  // 请求历史数据
+            ChartData.getInstance().DataOffSet = ChartSize.getInstance().ScreenKNum() - 1
+            var diffNum = ChartData.getInstance().PeriodData[self.Period].Data.length - ChartData.getInstance().NewData.length
+            if (diffNum > 100) {
+              ChartData.getInstance().BorrowKLineNum = 100
+            } else {
+              ChartData.getInstance().BorrowKLineNum = diffNum
+            }
+            self.LoadIndicatorData(ChartData.getInstance().PeriodData[self.Period].Data.slice(0, ChartData.getInstance().NewData.length + ChartData.getInstance().BorrowKLineNum), 'history')
+            self.UpdateDrawPicturePointIndex()  // 更新绘图对象
+            self.Loaded()
+            self.Drag = false
+            self.SplitData()
+            self.Draw()
+          }, datetime, end)
+        }
+        break;
+      case 'goto-close':
+        self.GoToDialog.SetHide()
         break;
     }
   }
@@ -180,6 +267,8 @@ function GoTopChartComponent () {
     this.ChartElement.appendChild(this.CanvasElement)
     this.ChartElement.appendChild(this.OptCanvasElement)
     this.ChartElement.appendChild(this.DrawPictureOptDialog.Create())
+    this.ChartElement.appendChild(this.GoToDialog.Create())
+    this.GoToDialog.RegisterClickEvent(this.ClickEventCallBack)
     this.DrawPictureOptDialog.RegisterClickEvent(this.ClickEventCallBack)
   }
 
@@ -188,10 +277,19 @@ function GoTopChartComponent () {
 
     this.XOption.height = ChartSize.getInstance().XAxisHeight
     this.XOption.width = ChartSize.getInstance().ChartContentWidth - ChartSize.getInstance().YAxisWidth
+    this.XOption.position.left = 0
+    this.XOption.position.top = ChartSize.getInstance().ChartContentHeight - ChartSize.getInstance().XAxisHeight
 
     const ch = ChartSize.getInstance().ChartContentHeight - ChartSize.getInstance().XAxisHeight
     const cw = ChartSize.getInstance().ChartContentWidth - ChartSize.getInstance().YAxisWidth
-    const sch = ch / (this.Options.Window.length + ChartSize.getInstance().ChartScale)
+
+    var wn = 0
+    for (let w in this.Options.Window) {
+      if (this.Options.Window[w].Location === 'pair') {
+        wn++
+      }
+    }
+    const sch = ch / (wn + ChartSize.getInstance().ChartScale)
 
     var ict = ChartSize.getInstance().ChartScale * sch
     for (let i in this.ChartFramePaintingList) {
@@ -255,9 +353,15 @@ function GoTopChartComponent () {
     this.XOption.position.left = 0
     this.XOption.position.top = ChartSize.getInstance().ChartContentHeight - ChartSize.getInstance().XAxisHeight
 
+    var wn = 0
+    for (let w in this.Options.Window) {
+      if (this.Options.Window[w].Location === 'pair') {
+        wn++
+      }
+    }
     const ch = ChartSize.getInstance().ChartContentHeight - ChartSize.getInstance().XAxisHeight
     const cw = ChartSize.getInstance().ChartContentWidth - ChartSize.getInstance().YAxisWidth
-    const sch = ch / (this.Options.Window.length + ChartSize.getInstance().ChartScale)
+    const sch = ch / (wn + ChartSize.getInstance().ChartScale)
     // kline
     this.KLineOption.name = 'kLine'
     this.KLineOption.symbol = this.Options.Symbol
@@ -282,8 +386,14 @@ function GoTopChartComponent () {
     for (var i in this.Options.Window) {
       var option = {
         name: this.Options.Window[i].Index,
+        type: this.Options.Window[i].Type,
+        requestType: this.Options.Window[i].RequestType,
+        dataType: this.Options.Window[i].DataType,
+        precision: this.Options.Window[i].Precision,
+        location: this.Options.Window[i].Location,
         params: this.Options.Window[i].Params,
         key: this.Options.Window[i].Key,
+        plots: this.Options.Window[i].Plots,
         style: this.Options.Window[i].Style,
         width: cw,
         height: sch,
@@ -294,6 +404,7 @@ function GoTopChartComponent () {
         yAxis: {
           width: ChartSize.getInstance().YAxisWidth,
           height: sch,
+          type: this.Options.Window[i].Type,
           name: this.Options.Window[i].Index,
           key: this.Options.Window[i].Key,
           position: {
@@ -304,6 +415,8 @@ function GoTopChartComponent () {
       }
       this.FrameList.push(option)
       var indicatorData = new IndicatorData()
+      indicatorData.RequestType = option.requestType
+      indicatorData.DataType = option.dataType
       this.IndicatorDataList[option.name] = indicatorData
       ict += sch
     }
@@ -311,11 +424,21 @@ function GoTopChartComponent () {
 
   this.SetChartFrameList = function () {
     for (var i in this.FrameList) {
-      var chartFramePaint = new ChartFramePainting()
-      chartFramePaint.Name = this.FrameList[i].name
-      chartFramePaint.Option = this.FrameList[i]
-      chartFramePaint.ChartElement = this.ChartElement
-      this.ChartFramePaintingList.push(chartFramePaint)
+      if (this.FrameList[i].location !== 'main') {
+
+        var chartFramePaint = new ChartFramePainting()
+        chartFramePaint.Name = this.FrameList[i].name
+        chartFramePaint.Option = this.FrameList[i]
+        chartFramePaint.ChartElement = this.ChartElement
+        this.ChartFramePaintingList.push(chartFramePaint)
+
+        if (this.FrameList[i].name === 'kLine') {
+          this.KLineChartFrameIndex = this.ChartFramePaintingList.length - 1
+        }
+      } else {
+        // 处理主图 indicator 
+        this.ChartFramePaintingList[this.KLineChartFrameIndex].IndicatorList[this.FrameList[i].name] = this.FrameList[i]
+      }
     }
   }
 
@@ -335,11 +458,16 @@ function GoTopChartComponent () {
         case 'MACD':
           this.DrawMacdChart(i)
           break;
+        default:
+          if (this.ChartFramePaintingList[i].Option.type === 'custom') {
+            this.DrawCustomIndicator(i)
+          }
+          break;
       }
     }
     // 更新 title value
     this.UpdateTitleCurValue(ChartData.getInstance().Data.length - 1)
-    // 更新 画布
+    // 更新 画图
     for (let i in this.DrawPictureToolList) {
       this.DrawPictureToolList[i].Canvas && this.DrawPictureToolList[i].Draw(null, null)
     }
@@ -850,8 +978,38 @@ function GoTopChartComponent () {
   }
 
   this.RequestNewIndicatorData = function (indicator, data, isExist) {
-    var iData = this.CalculationIndicator(indicator, data)
-    this.ProcessIndicatorNewData(indicator, iData, isExist)
+    if (this.IndicatorDataList[indicator].RequestType === 'local') {
+      // 本地计算系统 指标数据
+      var iData = this.CalculationIndicator(indicator, data)
+      this.ProcessIndicatorNewData(indicator, iData, isExist)
+    } else if (this.IndicatorDataList[indicator].RequestType === 'network') {
+      // 在线请求 自定义指标数据
+      if (!isExist) {
+        console.log(chanData)
+        var iData = chanData
+        self.ProcessIndicatorNewDiscontinuousData(indicator, iData, isExist)
+      }
+      // JSNetwork.HttpRequest({
+      //   url: IndicatorDataUrl,
+      //   headers: {},
+      //   data,
+      //   type: 'get',
+      //   dataType: "json",
+      //   async: true,
+      //   success: function (res) {
+      //     self.ProcessIndicatorNewDiscontinuousData(indicator, data, isExist)
+      //   }
+      // })
+    }
+
+  }
+
+  this.ProcessIndicatorNewDiscontinuousData = function (indicator, data, isExist) {
+    if (isExist) {
+      this.IndicatorDataList[indicator].PeriodData[this.Period].Data = this.IndicatorDataList[indicator].PeriodData[this.Period].Data.concat(data)
+    } else {
+      this.IndicatorDataList[indicator].PeriodData[this.Period].Data = data
+    }
   }
 
   this.ProcessIndicatorNewData = function (indicator, data, isExist) {
@@ -868,14 +1026,27 @@ function GoTopChartComponent () {
   }
 
   this.RequestHistoryIndicatorData = function (indicator, data, isExist) {
-    var iData = this.CalculationIndicator(indicator, data)
-    this.ProcessIndicatorHistoryData(indicator, iData, isExist)
+    if (this.IndicatorDataList[indicator].RequestType === 'local') {
+      // 本地计算系统 指标数据
+      var iData = this.CalculationIndicator(indicator, data)
+      this.ProcessIndicatorHistoryData(indicator, iData, isExist)
+    } else if (this.IndicatorDataList[indicator].RequestType === 'network') {
+
+    }
   }
 
   this.ProcessIndicatorHistoryData = function (indicator, data, isExist) {
     if (isExist) {
       // 向后借的100根K线数据对应的指标 需要替换成最新的，因为指标的计算呈现周期性，会被前面一定周期的K线数据影响，而前面的K线数据更新的话，先前最开始的一部分指标数据势必就是用不了
       this.IndicatorDataList[indicator].PeriodData[this.Period].Data.splice(0, ChartData.getInstance().BorrowKLineNum)
+      this.IndicatorDataList[indicator].PeriodData[this.Period].Data = data.concat(this.IndicatorDataList[indicator].PeriodData[this.Period].Data)
+    } else {
+      this.IndicatorDataList[indicator].PeriodData[this.Period].Data = data
+    }
+  }
+
+  this.ProcessIndicatorHistoryDiscontinuousData = function (indicator, data, isExist) {
+    if (isExist) {
       this.IndicatorDataList[indicator].PeriodData[this.Period].Data = data.concat(this.IndicatorDataList[indicator].PeriodData[this.Period].Data)
     } else {
       this.IndicatorDataList[indicator].PeriodData[this.Period].Data = data
@@ -980,6 +1151,24 @@ function GoTopChartComponent () {
     }
   }
 
+  // 计算要跳转的K线下标
+  this.CalculationGoToKIndex = function (gotime) {
+    for (let i in ChartData.getInstance().PeriodData[this.Period].Data) {
+      var curTime = ChartData.getInstance().PeriodData[this.Period].Data[i].datetime
+      var lastTime = null
+      if (i != 0) {
+        lastTime = ChartData.getInstance().PeriodData[this.Period].Data[i - 1].datetime
+      }
+      if (gotime == curTime) {
+        return i
+      }
+      // 适配不同周期时间
+      if (lastTime && gotime < curTime && gotime > lastTime) {
+        return i - 1
+      }
+    }
+  }
+
   this.CalculationRequestTimeRange = function (type) {
     var start
     var end
@@ -1022,27 +1211,77 @@ function GoTopChartComponent () {
     return { "start": start, "end": end }
   }
 
+  this.CalculationSpacingTimeStamp = function (curTime, num, type) {
+    var unit = 0
+    switch (this.Period) {
+      case "1m":
+        unit = 60000
+        break;
+      case "5m":
+        unit = 300000
+        break;
+      case "15m":
+        unit = 900000
+        break;
+      case "30m":
+        unit = 1800000
+        break;
+      case "1h":
+        unit = 3600000
+        break;
+      case "1d":
+        unit = 86400000
+        break;
+      default:
+        // 1w 1M 1y 时间跨度太大，不用计算
+        unit = 0
+        break;
+    }
+    var time = null
+    if (type === 'last') {
+      time = curTime - (unit * num)
+    } else if (type === 'next') {
+      time = curTime + (unit * num)
+    }
+    return time
+  }
+
+
   this.UpdateTitleCurValue = function (kIndex) {
     for (let i in this.ChartFramePaintingList) {
       switch (this.ChartFramePaintingList[i].Name) {
         case "kLine":
-          var curValue = {
+
+          var kvalue = {
             'open': ChartData.getInstance().Data[kIndex]['open'],
             'high': ChartData.getInstance().Data[kIndex]['high'],
             'low': ChartData.getInstance().Data[kIndex]['low'],
             'close': ChartData.getInstance().Data[kIndex]['close'],
           }
-          curValue['rate'] = ChartData.getInstance().Data[kIndex]['close'] - ChartData.getInstance().Data[kIndex]['open']
-          curValue['rate'] < 0 ? curValue['rate'] = curValue['rate'].toFixed(2) + '(-' + (Math.abs(curValue['rate']) / curValue['open'] * 100).toFixed(2) + '%)' : curValue['rate'] = curValue['rate'].toFixed(2) + '(+' + (Math.abs(curValue['rate']) / curValue['open'] * 100).toFixed(2) + '%)'
-          this.ChartFramePaintingList[i].SetTitleCurValue(curValue)
+          kvalue['rate'] = ChartData.getInstance().Data[kIndex]['close'] - ChartData.getInstance().Data[kIndex]['open']
+          kvalue['rate'] < 0 ? kvalue['rate'] = kvalue['rate'].toFixed(2) + '(-' + (Math.abs(kvalue['rate']) / kvalue['open'] * 100).toFixed(2) + '%)' : kvalue['rate'] = kvalue['rate'].toFixed(2) + '(+' + (Math.abs(kvalue['rate']) / kvalue['open'] * 100).toFixed(2) + '%)'
+
+          var curValue = {}
+          for (let j in this.ChartFramePaintingList[i].IndicatorList) {
+            var value = {}
+            for (let k in this.ChartFramePaintingList[i].IndicatorList[j].key) {
+              const key = this.ChartFramePaintingList[i].IndicatorList[j].key[k]
+              const datetime = ChartData.getInstance().Data[kIndex].datetime
+              console.log('idata', datetime)
+              value[key] = this.IndicatorDataList[j].Data[key][datetime] ? this.IndicatorDataList[j].Data[key][datetime].value : ''
+            }
+            curValue[this.ChartFramePaintingList[i].IndicatorList[j].name] = JSON.parse(JSON.stringify(value))
+          }
+          this.ChartFramePaintingList[i].SetTitleCurValue(kvalue, curValue)
           break;
         case 'MACD':
-          var curValue = {
-            'MACD': this.IndicatorDataList['MACD'].Data[kIndex]['MACD'],
-            'DEA': this.IndicatorDataList['MACD'].Data[kIndex]['DEA'],
-            'DIFF': this.IndicatorDataList['MACD'].Data[kIndex]['DIFF'],
+          var value = {}
+          const name = this.ChartFramePaintingList[i].Name
+          for (let k in this.ChartFramePaintingList[i].Option.key) {
+            const key = this.ChartFramePaintingList[i].Option.key[k]
+            value[key] = this.IndicatorDataList[name].Data[kIndex][key]
           }
-          this.ChartFramePaintingList[i].SetTitleCurValue(curValue)
+          this.ChartFramePaintingList[i].SetTitleCurValue(value)
           break;
       }
     }
@@ -1065,7 +1304,11 @@ function GoTopChartComponent () {
     ChartData.getInstance().Data = ChartData.getInstance().PeriodData[this.Period].Data.slice(leftDatasIndex, rightDatasIndex)
     // 指标数据
     for (let i in this.IndicatorDataList) {
-      this.IndicatorDataList[i].Data = this.IndicatorDataList[i].PeriodData[this.Period].Data.slice(leftDatasIndex, rightDatasIndex)
+      if (this.IndicatorDataList[i].DataType == 0) {
+        this.IndicatorDataList[i].Data = this.IndicatorDataList[i].PeriodData[this.Period].Data
+      } else {
+        this.IndicatorDataList[i].Data = this.IndicatorDataList[i].PeriodData[this.Period].Data.slice(leftDatasIndex, rightDatasIndex)
+      }
     }
   }
 
@@ -1090,6 +1333,7 @@ function GoTopChartComponent () {
   this.DrawKLineChart = function (i) {
     this.ChartFramePaintingList[i].DrawChartFramePaint()
     this.ChartFramePaintingList[i].DrawChartPaint(function () {
+      // 主图K线
       var yAxis = new YAxis()
       yAxis.Create(self.Canvas, self.OptCanvas, ChartData.getInstance().Data, self.ChartFramePaintingList[i].Option.yAxis)
 
@@ -1100,6 +1344,14 @@ function GoTopChartComponent () {
 
       var kLine = new KLine()
       kLine.Create(self.Canvas, self.OptCanvas, self.ChartFramePaintingList[i].Option, ChartData.getInstance().Data)
+
+      // 主图指标
+      for (let j in self.ChartFramePaintingList[i].IndicatorList) {
+        var option = self.ChartFramePaintingList[i].IndicatorList[j]
+        var chartOption = self.ChartFramePaintingList[i].Option
+        var indicatorCustom = new IndicatorCustom()
+        indicatorCustom.Create(self.Canvas, option, chartOption, self.IndicatorDataList[j].Data)
+      }
     })
   }
 
@@ -1108,15 +1360,50 @@ function GoTopChartComponent () {
     this.ChartFramePaintingList[i].DrawChartFramePaint()
     this.ChartFramePaintingList[i].DrawChartPaint(function () {
       var yAxis = new YAxis()
-      yAxis.Create(self.Canvas, self.OptCanvas, self.IndicatorDataList[name].Data, self.ChartFramePaintingList[i].Option.yAxis, 6)
+      var option
+      if (self.ChartFramePaintingList[i].Option.location === 'main') {
+        yAxis = self.ChartFramePaintingList['kLine'].Option.yAxis
+        option = self.ChartFramePaintingList['kLine'].Option
+      } else {
+        yAxis.Create(self.Canvas, self.OptCanvas, self.IndicatorDataList[name].Data, self.ChartFramePaintingList[i].Option.yAxis, 6)
+        self.ChartFramePaintingList[i].Option.yAxis.unitPricePx = yAxis.UnitPricePx
+        self.ChartFramePaintingList[i].Option.yAxis.Min = yAxis.Min
+        self.ChartFramePaintingList[i].Option.yAxis.Max = yAxis.Max
+        self.ChartFramePaintingList[i].XAxis = self.XAxis
+        option = self.ChartFramePaintingList[i].Option
+      }
+
+      var macd = new MACD()
+      macd.Create(self.Canvas, option, self.IndicatorDataList[name].Data)
+    })
+  }
+
+  this.DrawCustomIndicator = function (i) {
+    var name = this.ChartFramePaintingList[i].Name
+    this.ChartFramePaintingList[i].DrawChartFramePaint()
+    this.ChartFramePaintingList[i].DrawChartPaint(function () {
+      var option
+      var chartOption
+      var yAxis = new YAxis()
+      var iData = new Array()
+
+      for (let j in self.IndicatorDataList[name].Data) {
+        for (let k in self.IndicatorDataList[name].Data[j]) {
+          iData.push(self.IndicatorDataList[name].Data[j][k].value)
+        }
+      }
+      yAxis.Create(self.Canvas, self.OptCanvas, iData, self.ChartFramePaintingList[i].Option.yAxis, 6)
 
       self.ChartFramePaintingList[i].Option.yAxis.unitPricePx = yAxis.UnitPricePx
       self.ChartFramePaintingList[i].Option.yAxis.Min = yAxis.Min
       self.ChartFramePaintingList[i].Option.yAxis.Max = yAxis.Max
       self.ChartFramePaintingList[i].XAxis = self.XAxis
 
-      var macd = new MACD()
-      macd.Create(self.Canvas, self.ChartFramePaintingList[i].Option, self.IndicatorDataList[name].Data)
+      option = self.ChartFramePaintingList[i].Option
+      chartOption = option
+
+      var indicatorCustom = new IndicatorCustom()
+      indicatorCustom.Create(self.Canvas, option, chartOption, self.IndicatorDataList[name].Data)
     })
   }
 }
@@ -1437,7 +1724,6 @@ function YAxis () {
     this.Datas = datas
     this.Option = option
     splitNumber && (this.SplitNumber = splitNumber)
-
     this.ValueHeight = this.Option.height - ChartSize.getInstance().GetTop() - ChartSize.getInstance().GetBottom() - ChartSize.getInstance().GetTitleHeight()
 
     this.CalculationMinMaxValue(this.Option.key)
@@ -1454,6 +1740,9 @@ function YAxis () {
     if (this.Option.name === 'kLine') {
       this.Min = Math.min.apply(Math, this.Datas.map(function (o) { return parseFloat(o.low) }))
       this.Max = Math.max.apply(Math, this.Datas.map(function (o) { return parseFloat(o.high) }))
+    } else if (this.Option.type === 'custom') {
+      this.Min = Math.min.apply(Math, this.Datas)
+      this.Max = Math.max.apply(Math, this.Datas)
     } else {
       var minArray = []
       var maxArray = []
@@ -1648,7 +1937,7 @@ function MACD () {
 
   this.Draw = function () {
     this.Canvas.beginPath()
-    this.Canvas.strokeStyle = this.Option.style['DIFF']
+    this.Canvas.strokeStyle = this.Option.style['DIFF']['color']
     this.Canvas.lineWidth = 1
     for (var i = 0, j = this.Datas.length; i < j; i++) {
       this.DrawCurve(i, 'DIFF')
@@ -1658,7 +1947,7 @@ function MACD () {
 
     // DEA
     this.Canvas.beginPath()
-    this.Canvas.strokeStyle = this.Option.style['DEA']
+    this.Canvas.strokeStyle = this.Option.style['DEA']['color']
     this.Canvas.lineWidth = 1
     for (var i = 0, j = this.Datas.length; i < j; i++) {
       this.DrawCurve(i, 'DEA')
@@ -1703,7 +1992,7 @@ function MACD () {
 
   this.DrawVerticalDownLine = function (i, attrName) {
     var StartX = ChartSize.getInstance().GetLeft() + (ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0] + ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1]) * i + ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0] / 2 + this.Option.position.left
-    this.Canvas.strokeStyle = this.Option.style['MACD']['DOWN']
+    this.Canvas.strokeStyle = this.Option.style['MACD']['color']['down']
     var StartY = this.ZeroY + (Math.abs(parseFloat(this.Datas[i][attrName]) * this.Option.yAxis.unitPricePx))
     this.Canvas.moveTo(StartX, StartY)
     this.Canvas.lineTo(StartX, this.ZeroY)
@@ -1712,11 +2001,92 @@ function MACD () {
   this.DrawVerticalUpLine = function (i, attrName) {
     var StartY
     var StartX = ChartSize.getInstance().GetLeft() + (ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0] + ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1]) * i + ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0] / 2 + this.Option.position.left
-    this.Canvas.strokeStyle = this.Option.style['MACD']['UP']
+    this.Canvas.strokeStyle = this.Option.style['MACD']['color']['up']
     this.ZeroY != null ? StartY = this.ZeroY - (parseFloat(this.Datas[i][attrName]) * this.Option.yAxis.unitPricePx) : StartY = this.Option.position.top + this.Option.height + ChartSize.getInstance().GetTitleHeight() - (parseFloat(this.Datas[i][attrName]) * this.Option.yAxis.unitPricePx) - ChartSize.getInstance().GetTop() + ChartSize.getInstance().GetTitleHeight()
     this.Canvas.moveTo(StartX, StartY)
     this.Canvas.lineTo(StartX, this.ZeroY)
   }
+}
+
+// 自定义指标
+function IndicatorCustom () {
+  this.Name
+  this.IsHiddenStudy = false
+  this.Plots = new Array()
+  this.Styles
+  this.Data
+  this.Precision
+  this.Params
+  this.Canvas
+  this.ChartOption
+
+  this.Create = function (canvas, option, chartOption, data) {
+    this.Name = option.name
+    this.Precision = option.precision
+    this.Plots = option.plots
+    this.Styles = option.style
+    this.Params = option.params
+    this.ChartOption = chartOption
+    this.Canvas = canvas
+    this.Data = data
+    this.Draw()
+  }
+
+  this.Draw = function () {
+    for (let i in this.Plots) {
+      switch (this.Plots[i].type) {
+        case 'line':
+          this.LineShape(this.Plots[i].id)
+          break;
+        case 'rect':
+          break;
+        case 'text':
+          break;
+        case 'icon':
+          break;
+      }
+    }
+  }
+
+  this.LineShape = function (plot) {
+    this.Canvas.beginPath()
+    this.Canvas.lineWidth = this.Styles[plot].lineWidth
+    this.Canvas.strokeStyle = this.Styles[plot].color
+    var firstMove = true
+    var iData = this.Data[plot]
+    var kLineData = ChartData.getInstance().Data
+    for (var l in kLineData) {
+      if (iData[kLineData[l].datetime]) {
+        console.log('drawline', l, ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0] + ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1], (parseInt(l) + 1), ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0] / 2 - ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1], this.ChartOption.position.left + ChartSize.getInstance().GetLeft(), (ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0] + ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1]) * (l + 1) - ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0] / 2 - ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1] + this.ChartOption.position.left + ChartSize.getInstance().GetLeft())
+        const x = (ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0] + ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1]) * (parseInt(l) + 1) - ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0] / 2 - ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1] + this.ChartOption.position.left + ChartSize.getInstance().GetLeft()
+        const y = this.ChartOption.height - ChartSize.getInstance().GetExtraHeight() - (iData[kLineData[l].datetime].value - this.ChartOption['yAxis'].Min) * this.ChartOption['yAxis'].unitPricePx + ChartSize.getInstance().GetTop() + ChartSize.getInstance().GetTitleHeight() + this.ChartOption.position.top
+        console.log(x, y)
+        if (firstMove) {
+          this.Canvas.moveTo(x, y)
+          firstMove = false
+        } else {
+          this.Canvas.lineTo(x, y)
+        }
+      }
+    }
+    this.Canvas.stroke()
+    this.Canvas.closePath()
+  }
+
+  this.RectShap = function (plot) {
+    var iData = this.Data.name
+    var kLineData = ChartData.getInstance().Data
+
+    this.Canvas.beginPath()
+    this.Canvas.fillStyle = this.Styles[plot].color
+    var rectPoint = []
+    for (var r in kLineData) {
+      if (iData[kLineData[l].datetime]) {
+
+      }
+    }
+  }
+
 }
 
 ////////////////////////////////////////////
@@ -1734,24 +2104,28 @@ function ChartFramePainting () {
   this.YAxis
   this.Name
   this.ChartData
+  this.IndicatorList = {}  // 指标
 
   this.DrawChartFramePaint = function () {
     // window title
     if (!this.ChartTitlePainting) {
       this.ChartTitlePainting = new ChartTitlePainting()
-      this.ChartElement.appendChild(this.ChartTitlePainting.Create(this.Option))
+      this.ChartElement.appendChild(this.ChartTitlePainting.Create(this.Option, this.IndicatorList))
+      this.ChartElement.appendChild(this.ChartTitlePainting.CreateIndicatorTitle())
       this.ChartTitlePainting.SetSize()
       this.ChartTitlePainting.CreateValueBoX()
+      this.ChartTitlePainting.CreateIndicatorValueBox()
+    } else {
+      this.Resize()
     }
-
   }
 
   this.DrawChartPaint = function (callback) {
     callback()
   }
 
-  this.SetTitleCurValue = function (curValue) {
-    this.ChartTitlePainting.SetValue(curValue)
+  this.SetTitleCurValue = function (curValue, indicatorValue) {
+    this.ChartTitlePainting.SetValue(curValue, indicatorValue)
   }
 
   this.Resize = function () {
@@ -1776,6 +2150,8 @@ function TopToolContainer () {
   this.newMethod = ChartExtendPainting
   this.newMethod()
   delete this.newMethod
+
+  var self = this
 
   this.Width
   this.FeaturesList = [
@@ -1818,7 +2194,7 @@ function TopToolContainer () {
   this.RegisterClickEvent = function (callback) {
     for (let i in this.FeaturesList) {
       $('#' + this.FeaturesList[i].id).click(function (e) {
-        callback(e)
+        callback(self.FeaturesList[i].id)
       })
     }
   }
@@ -2164,12 +2540,6 @@ function DivDialog () {
 
   }
 
-  this.RegisterClickEvent = function (callback) {
-    $('#draw-tool-opt_delete').click(function (e) {
-      callback('delete')
-      e.preventDefault()
-    })
-  }
 }
 
 // 画图右键操作窗口
@@ -2183,13 +2553,19 @@ function DrawPictureOptDialog () {
     this.DivElement.className = 'draw-tool-opt-dialog'
     this.DivElement.id = 'draw-tool-opt-dialog'
     this.DivElement.style.display = 'none'
-    this.DivElement.style.width = ChartSize.getInstance().DrawPictureOptDialogWidth + 'px'
     this.DivElement.innerHTML =
       '<div class="item" style="width:' + ChartSize.getInstance().DrawPictureOptDialogWidth + 'px" id="draw-tool-opt_delete"><span class="iconfont icon-shanchu1"></span><span style="margin-left:10px">删除</span><span class="label">Del</span></div>'
     this.DivElement.oncontextmenu = function (e) {
       e.preventDefault()
     }
     return this.DivElement
+  }
+
+  this.RegisterClickEvent = function (callback) {
+    $('#draw-tool-opt_delete').click(function (e) {
+      callback('delete')
+      e.preventDefault()
+    })
   }
 }
 
@@ -2198,6 +2574,50 @@ function PeriodDialog () {
   this.newMethod = DivDialog
   this.newMethod()
   delete this.newMethod
+}
+
+// 跳转dialog
+function GoToDialog () {
+  this.newMethod = DivDialog
+  this.newMethod()
+  delete this.newMethod
+
+  this.Create = function () {
+    this.DivElement = document.createElement('div')
+    this.DivElement.className = "goto-dialog"
+    this.DivElement.id = "goto-dialog"
+    this.DivElement.display = 'none'
+
+    this.DivElement.innerHTML =
+      '<div style="padding:30px 20px;display:flex;border-bottom:1px solid #8d9bab"><span style="color:#fff;font-size:14px;flex-grow:1;">前往到</span><span id="goto-close" class="iconfont icon-guanbi" style="color:#fff;"></span></div>\n' +
+      '<div style="padding:30px 20px;display:flex;">\n' +
+      '<input id="date-d" class="date-cal" placeholder="日期" type="text" ></input>\n' +
+      '<input id="time-d" class="time-cal" placeholder="时间"  type="text" ></input>\n' +
+      '<span id="goto-btn" class="iconfont icon-tiaozhuan" style="color:#fff;margin-left:20px;padding:10px;background:#2196f3;border-radius:3px;"></span>\n' +
+      '</div>'
+
+    this.DivElement.style.top = (ChartSize.getInstance().ChartContentHeight - this.GetHeight()) / 2 - 100 + 'px'
+    this.DivElement.style.left = (ChartSize.getInstance().ChartContentWidth - 300) / 2 + 'px'
+    this.DivElement.style.display = 'none'
+
+    return this.DivElement
+  }
+
+  this.RegisterClickEvent = function (callback) {
+    $('#goto-btn').click(function (e) {
+      callback('goto')
+      e.preventDefault()
+    })
+    $('#goto-close').click(function (e) {
+      callback('goto-close')
+      e.preventDefault()
+    })
+  }
+
+  this.SetShow = function () {
+    this.isHide = false
+    this.DivElement.style.display = ''
+  }
 }
 
 ////////////////////////////////////////////
@@ -2209,11 +2629,14 @@ function ChartTitlePainting () {
   this.Name
   this.Option
   this.DivElement
+  this.IndicatorElement
   this.CurValue
+  this.IndicatorList
 
-  this.Create = function (option) {
+  this.Create = function (option, indicatorList) {
     this.Name = option.name
     this.Option = option
+    this.IndicatorList = indicatorList
     this.DivElement = document.createElement('div')
     this.DivElement.className = "title-tool"
     this.DivElement.id = this.Name + '-title-tool'
@@ -2237,10 +2660,35 @@ function ChartTitlePainting () {
     return this.DivElement
   }
 
+  this.CreateIndicatorTitle = function () {
+    this.IndicatorElement = document.createElement('div')
+    this.IndicatorElement.className = 'indicator-title-tool'
+    this.IndicatorElement.id = this.Name + '-indicator-title-tool'
+    for (let i in this.IndicatorList) {
+      var div = document.createElement('div')
+      div.className = 'indicator-title-tool-item'
+      div.id = i + '-indicator-title-tool-item'
+      div.innerHTML =
+        '<div id="' + i + 'left-box" class="left-box">\n' +
+        ' <div id="' + i + 'name-box">\n' +
+        '   <span id="' + i + 'name" style="color:#8d9bab"></span>\n' +
+        '   <span id="' + i + 'show-hide" class="iconfont icon-xianshi icon" style="color:#8d9bab;font-size:18px;margin-left:5px"></span>\n' +
+        '   <span id="' + i + 'settings" class="iconfont icon-shezhi icon" style="color:#8d9bab;font-size:18px;margin-left:5px"></span>\n' +
+        '   <span id="' + i + 'close-icon" class="iconfont icon-guanbi icon" style="color:#8d9bab;font-size:18px;margin-left:5px"></span>\n' +
+        ' </div>\n' +
+        ' <div id="' + i + 'value-box" style="margin-left:10px"></div>\n' +
+        '</div>'
+      this.IndicatorElement.appendChild(div)
+    }
+    return this.IndicatorElement
+  }
+
   this.SetSize = function () {
     this.DivElement.style.top = this.Option.position.top + 10 + 'px'
     this.DivElement.style.left = this.Option.position.left + 10 + 'px'
     this.DivElement.style.width = ChartSize.getInstance().ChartContentWidth - ChartSize.getInstance().YAxisWidth - ChartSize.getInstance().GetLeft() - 20 + 'px'
+    this.IndicatorElement.style.top = this.Option.position.top + 10 + 30 + 'px'
+    this.IndicatorElement.style.left = this.Option.position.left + 10 + 'px'
   }
 
   this.CreateValueBoX = function () {
@@ -2265,7 +2713,21 @@ function ChartTitlePainting () {
     }
   }
 
-  this.SetValue = function (curValue) {
+  this.CreateIndicatorValueBox = function () {
+    for (let i in this.IndicatorList) {
+      var valueElement = document.getElementById(i + 'value-box')
+      $('#' + i + 'name').text(i).css('font-size', '14px')
+      for (let j in this.IndicatorList[i].style) {
+        var span = document.createElement('span')
+        span.id = j
+        span.className = 'value-box_value'
+        span.style.marginRight = 10 + 'px'
+        valueElement.appendChild(span)
+      }
+    }
+  }
+
+  this.SetValue = function (curValue, indicatorValue) {
     if (this.Name == 'kLine') {
       var colorStyle
       if (curValue['open'] > curValue['close']) {
@@ -2279,12 +2741,18 @@ function ChartTitlePainting () {
         $('#' + i).css('color', colorStyle)
         $('#' + i).text(curValue[i])
       }
+      for (let j in this.IndicatorList) {
+        for (let k in indicatorValue[j]) {
+          $('#' + k).css('color', this.IndicatorList[j].style[k].color)
+          $('#' + k).text(indicatorValue[j][k])
+        }
+      }
     } else if (this.Name == 'MACD') {
       for (let i in curValue) {
         if (i == 'MACD') {
-          curValue[i] > 0 ? $('#' + i).css('color', this.Option.style[i].UP) : $('#' + i).css('color', this.Option.style[i].DOWN)
+          curValue[i] > 0 ? $('#' + i).css('color', this.Option.style[i].color.up) : $('#' + i).css('color', this.Option.style[i].color.down)
         } else {
-          $('#' + i).css('color', this.Option.style[i])
+          $('#' + i).css('color', this.Option.style[i].color)
         }
         $('#' + i).text(curValue[i].toFixed(4))
       }
@@ -2340,17 +2808,17 @@ function CrossCursor () {
       this.OptCanvas.fillRect(ToFixedRect(0), ToFixedRect(this.XAxisOption['position']['top']), ToFixedRect(xtw + 20), ToFixedRect(this.XAxisOption['height'] - 5))
       this.OptCanvas.font = "12px sans-serif"
       this.OptCanvas.fillStyle = g_GoTopChartResource.FontLightColor
-      this.OptCanvas.fillText(itemData.datetime, ToFixedPoint(10), this.XAxisOption['position']['top'] + 18)
+      this.OptCanvas.fillText(parseTime(itemData.datetime), ToFixedPoint(10), this.XAxisOption['position']['top'] + 18)
     } else if (x > ChartData.getInstance().ChartContentWidth - ChartData.getInstance().YAxisWidth - (xtw / 2 + 10)) {
       this.OptCanvas.fillRect(ToFixedRect(ChartData.getInstance().ChartContentWidth - ChartData.getInstance().YAxisWidth - xtw - 10), ToFixedRect(this.XAxisOption['position']['top']), ToFixedRect(xtw + 20), ToFixedRect(this.XAxisOption['height'] - 5))
       this.OptCanvas.font = "12px sans-serif"
       this.OptCanvas.fillStyle = g_GoTopChartResource.FontLightColor
-      this.OptCanvas.fillText(itemData.datetime, ToFixedPoint(ChartData.getInstance().ChartContentWidth - ChartData.getInstance().YAxisWidth - xtw / 2 - 10), this.XAxisOption['position']['top'] + 18)
+      this.OptCanvas.fillText(parseTime(itemData.datetime), ToFixedPoint(ChartData.getInstance().ChartContentWidth - ChartData.getInstance().YAxisWidth - xtw / 2 - 10), this.XAxisOption['position']['top'] + 18)
     } else {
       this.OptCanvas.fillRect(ToFixedRect(x - xtw / 2 - 10), ToFixedRect(this.XAxisOption['position']['top']), ToFixedRect(xtw + 20), ToFixedRect(this.XAxisOption['height'] - 5))
       this.OptCanvas.font = "12px sans-serif"
       this.OptCanvas.fillStyle = g_GoTopChartResource.FontLightColor
-      this.OptCanvas.fillText(itemData.datetime, ToFixedPoint(x - xtw / 2), this.XAxisOption['position']['top'] + 18)
+      this.OptCanvas.fillText(parseTime(itemData.datetime), ToFixedPoint(x - xtw / 2), this.XAxisOption['position']['top'] + 18)
     }
 
     this.OptCanvas.strokeStyle = g_GoTopChartResource.FontLightColor
@@ -2456,6 +2924,8 @@ function IndicatorData () {
 
   this.Name
   this.KLineData
+  this.RequestType // 数据请求类型  local：本地计算、network：网络请求
+  this.DataType    // 数据类型 0：不连续性、1：连续性
 
 }
 
@@ -2549,6 +3019,56 @@ function accAdd (arg1, arg2) {
     r2 = arg2.toString().split(".")[1].length
   } catch (e) { r2 = 0 } m = Math.pow(10, Math.max(r1, r2))
   return (arg1 * m + arg2 * m) / m
+}
+
+function date2TimeStamp (str) {
+  const date = new Date(str.replace(/-/g, '/'))
+  return Date.parse(date)
+}
+
+function parseTime (time, cFormat) {
+  if (arguments.length === 0 || !time) {
+    return null
+  }
+  const format = cFormat || '{y}-{m}-{d} {h}:{i}:{s}'
+  let date
+  if (typeof time === 'object') {
+    date = time
+  } else {
+    if ((typeof time === 'string')) {
+      if ((/^[0-9]+$/.test(time))) {
+        // support "1548221490638"
+        time = parseInt(time)
+      } else {
+        // support safari
+        // https://stackoverflow.com/questions/4310953/invalid-date-in-safari
+        time = time.replace(new RegExp(/-/gm), '/')
+      }
+    }
+
+    if ((typeof time === 'number') && (time.toString().length === 10)) {
+      time = time * 1000
+    }
+    date = new Date(time)
+  }
+  const formatObj = {
+    y: date.getFullYear(),
+    m: date.getMonth() + 1,
+    d: date.getDate(),
+    h: date.getHours(),
+    i: date.getMinutes(),
+    s: date.getSeconds(),
+    a: date.getDay()
+  }
+  const time_str = format.replace(/{([ymdhisa])+}/g, (result, key) => {
+    const value = formatObj[key]
+    // Note: getDay() returns 0 on Sunday
+    if (key === 'a') {
+      return ['日', '一', '二', '三', '四', '五', '六'][value]
+    }
+    return value.toString().padStart(2, '0')
+  })
+  return time_str
 }
 
 Number.prototype.add = function (arg) {

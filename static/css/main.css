@@ -18,6 +18,11 @@ ol li {
   margin: 0;
 }
 
+input {
+  outline: none;
+  border: 1px solid #8d9bab;
+}
+
 .main-div {
   display: flex;
 }
@@ -87,6 +92,17 @@ ol li {
   height: 24px;
   position: absolute;
   z-index: 3;
+}
+
+.indicator-title-tool {
+  position: absolute;
+  z-index: 3;
+}
+
+.indicator-title-tool-item {
+  display: flex;
+  align-items: center;
+  height: 20px;
 }
 
 .left-box {
@@ -172,6 +188,39 @@ ol li {
   padding-left: 5px;
   box-sizing: border-box;
 }
+
+.goto-dialog {
+  width: 310px;
+  background: #353d5a;
+  position: absolute;
+  z-index: 10;
+  border-radius: 2px;
+  box-shadow: 0px 1px 30px 0px #000000;
+}
+
+.date-cal {
+  height: 34px;
+  width: 120px;
+  border-radius: 3px;
+  line-height: 34px;
+  padding-left: 10px;
+  box-sizing: border-box;
+}
+
+.time-cal {
+  height: 34px;
+  width: 80px;
+  border-radius: 3px;
+  line-height: 34px;
+  padding-left: 10px;
+  margin-left: 10px;
+  box-sizing: border-box;
+}
+
+#goto-btn:active {
+  opacity: 0.8;
+}
+
 
 .animationSlow {
   width: 100rpx;
