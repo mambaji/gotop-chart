@@ -16,6 +16,7 @@
   <script src="./static/js/jquery.min.js"></script>
   <script src="./plugs/laydate/laydate.js"></script>
   <script src="./datas/chan.js"></script>
+  <script src="./datas/drawEleDatas.js"></script>
   <script src="./gotopchart.js"></script>
   <script src="./gotopchart.network.js"></script>
   <script src="./gotopchart.socket.js"></script>
@@ -108,7 +109,23 @@
         Right: 5,
         Bottom: 5,
         Top: 5
-      }
+      },
+
+      drawEle: [
+        // {
+        //   Location: 'kLine',
+        //   type: 'line',
+        // },
+        // {
+        //   Location: 'kLine',
+        //   type: 'rect'
+        // },
+        {
+          type: 'signals',
+          datas: signals
+        }
+      ]
+
     }
 
     $(window).resize(resizeCanvas)

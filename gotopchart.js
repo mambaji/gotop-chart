@@ -53,6 +53,7 @@ function GoTopChart (element) {
       this.Chart.SetSize()
       this.Chart.SetFrameOption()
       this.Chart.SetChartFrameList()
+      this.Chart.ProcessDrawPictureEleData()
       // 数据请求后进行回调
       var start = null
       // 离线模式需要确定start，在线模式不需要start和end，因为接口自动获取最新的已完成周期K线数据，还未完成的周期K线数据需要使用 websocket 获取
@@ -119,6 +120,7 @@ function GoTopChartComponent () {
   this.ChartFramePaintingList = new Array()     // 存放图表框架绘制对象
   this.FrameList = new Array()                  // 存放图表框架
   this.DrawPictureToolList = new Array()            // 存放画图对象
+  this.DrawPictureSaveIndex = 0                     // drawPictureToolList中已经保存的数据下标
 
   this.CrossCursor = new CrossCursor()          // 光标
 
@@ -181,7 +183,6 @@ function GoTopChartComponent () {
         var time = $('#time-d').val()
         var datetime = date + ' ' + time
         datetime = date2TimeStamp(datetime)
-        console.log(datetime)
         if (datetime === '') return
         var length = ChartData.getInstance().PeriodData[self.Period].Data.length
         if (datetime <= ChartData.getInstance().PeriodData[self.Period].Data[length - 1].datetime
@@ -193,7 +194,6 @@ function GoTopChartComponent () {
           } else {
             ChartData.getInstance().DataOffSet = parseInt(dataOffset)
           }
-          console.log(dataOffset, ChartData.getInstance().DataOffSet)
           self.ClearMainCanvas()
           self.ClearOptCanvas()
           self.Drag = false
@@ -204,7 +204,6 @@ function GoTopChartComponent () {
 
         if (datetime > ChartData.getInstance().PeriodData[self.Period].Data[length - 1].datetime) {
           // 获取新数据
-          console.log('获取新数据')
           self.Loading()
           var start = ChartData.getInstance().PeriodData[self.Period].Data[length - 1].datetime
           start = self.CalculationSpacingTimeStamp(start, 1, 'next')
@@ -224,7 +223,6 @@ function GoTopChartComponent () {
             self.Draw()
           }, start, datetime)
         } else if (datetime < ChartData.getInstance().PeriodData[self.Period].Data[0].datetime) {
-          console.log('获取历史数据')
           // 获取新的历史数据
           self.Loading()
           var end = ChartData.getInstance().PeriodData[self.Period].Data[0].datetime
@@ -238,7 +236,7 @@ function GoTopChartComponent () {
               ChartData.getInstance().BorrowKLineNum = diffNum
             }
             self.LoadIndicatorData(ChartData.getInstance().PeriodData[self.Period].Data.slice(0, ChartData.getInstance().NewData.length + ChartData.getInstance().BorrowKLineNum), 'history')
-            self.UpdateDrawPicturePointIndex()  // 更新绘图对象
+            // self.UpdateDrawPicturePointIndex()  // 更新绘图对象
             self.Loaded()
             self.Drag = false
             self.SplitData()
@@ -452,12 +450,15 @@ function GoTopChartComponent () {
     // window
     for (let i in this.ChartFramePaintingList) {
       switch (this.ChartFramePaintingList[i].Name) {
+        // K线图
         case 'kLine':
           this.DrawKLineChart(i)
           break;
+        // 系统指标
         case 'MACD':
           this.DrawMacdChart(i)
           break;
+        // 自定义指标 
         default:
           if (this.ChartFramePaintingList[i].Option.type === 'custom') {
             this.DrawCustomIndicator(i)
@@ -468,6 +469,7 @@ function GoTopChartComponent () {
     // 更新 title value
     this.UpdateTitleCurValue(ChartData.getInstance().Data.length - 1)
     // 更新 画图
+    console.log("开始画图")
     for (let i in this.DrawPictureToolList) {
       this.DrawPictureToolList[i].Canvas && this.DrawPictureToolList[i].Draw(null, null)
     }
@@ -496,6 +498,20 @@ function GoTopChartComponent () {
         var obj = new RectElement()
         obj.IsSelect = true
         obj.Name = 'rect'
+        this.DrawPictureToolList.push(obj)
+        break;
+      case "buy-tool":
+        var obj = new SignalsElement()
+        obj.IsSelect = true
+        obj.Name = 'signals'
+        obj.ExtensionObj.type = "buy"
+        this.DrawPictureToolList.push(obj)
+        break;
+      case "sell-tool":
+        var obj = new SignalsElement()
+        obj.IsSelect = true
+        obj.Name = 'signals'
+        obj.ExtensionObj.type = "sell"
         this.DrawPictureToolList.push(obj)
         break;
     }
@@ -550,6 +566,7 @@ function GoTopChartComponent () {
 
       // 画图工具 整体拖动
       if (self.DrawPictureIndex.CurSelectIndex != null && self.DrawPictureIndex.CurSelectPoint == null && self.Drag) {
+        console.log("画图工具 整体拖动")
         var moveY = obj.y - drag.lastMove.Y
         var lastIndex = Math.ceil(drag.lastMove.X / (ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1] + ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0]))
         var offsetIndex = Math.ceil(obj.x / (ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1] + ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0]))
@@ -562,6 +579,7 @@ function GoTopChartComponent () {
 
       // 画图工具 某个点进行改动
       if (self.DrawPictureIndex.CurSelectIndex != null && self.DrawPictureIndex.CurSelectPoint != null && self.Drag) {
+        console.log("画图工具 某个点进行改动")
         let moveY = obj.y - drag.lastMove.Y
         var lastIndex = Math.ceil(drag.lastMove.X / (ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1] + ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0]))
         var offsetIndex = Math.ceil(obj.x / (ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1] + ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0]))
@@ -641,6 +659,7 @@ function GoTopChartComponent () {
           < self.DrawPictureToolList[self.DrawPictureIndex.CurSelectIndex].PointCount) {
           self.DrawPictureToolList[self.DrawPictureIndex.CurSelectIndex].SetPoint(obj.x, obj.y)
         }
+        console.log(self.DrawPictureToolList)
         return
       }
       // 光标模式
@@ -657,7 +676,8 @@ function GoTopChartComponent () {
         var inPath = -1
         for (var d in self.DrawPictureToolList) {
           inPath = self.DrawPictureToolList[d].IsPointInPath(obj.x, obj.y)
-          if (inPath == -1) {                    // 没有选中
+
+          if (inPath == -1 || inPath == undefined) {  // 没有选中
             self.DrawPictureIndex.CurSelectIndex = null
             self.DrawPictureIndex.CurSelectPoint = null
             continue
@@ -723,7 +743,7 @@ function GoTopChartComponent () {
           ChartData.getInstance().BorrowKLineNum = diffNum
         }
         self.LoadIndicatorData(ChartData.getInstance().PeriodData[self.Period].Data.slice(0, ChartData.getInstance().NewData.length + ChartData.getInstance().BorrowKLineNum), 'history')
-        self.UpdateDrawPicturePointIndex()  // 更新绘图对象
+        // self.UpdateDrawPicturePointIndex()  // 更新绘图对象
         self.Loaded()
         self.SplitData()
         self.Draw()
@@ -985,7 +1005,6 @@ function GoTopChartComponent () {
     } else if (this.IndicatorDataList[indicator].RequestType === 'network') {
       // 在线请求 自定义指标数据
       if (!isExist) {
-        console.log(chanData)
         var iData = chanData
         self.ProcessIndicatorNewDiscontinuousData(indicator, iData, isExist)
       }
@@ -1064,12 +1083,12 @@ function GoTopChartComponent () {
    * @description 当加载history 数据时，绘图的position保存的Index需要继续更新
    */
   this.UpdateDrawPicturePointIndex = function () {
-    var length = ChartData.getInstance().NewData.length
-    for (var i in this.DrawPictureToolList) {
-      for (var j in this.DrawPictureToolList[i].Position) {
-        this.DrawPictureToolList[i].Position[j][0] += length
-      }
-    }
+    // var length = ChartData.getInstance().NewData.length
+    // for (var i in this.DrawPictureToolList) {
+    //   for (var j in this.DrawPictureToolList[i].Position) {
+    //     this.DrawPictureToolList[i].Position[j][0] += length
+    //   }
+    // }
   }
 
   this.ScaleKLine = function (e) {
@@ -1137,7 +1156,7 @@ function GoTopChartComponent () {
             ChartData.getInstance().BorrowKLineNum = diffNum
           }
           self.LoadIndicatorData(ChartData.getInstance().PeriodData[self.Period].Data.slice(0, ChartData.getInstance().NewData.length + ChartData.getInstance().BorrowKLineNum), 'history')
-          self.UpdateDrawPicturePointIndex()  // 更新绘图对象
+          // self.UpdateDrawPicturePointIndex()  // 更新绘图对象
           self.Loaded()
           self.Drag = false
           self.SplitData()
@@ -1246,6 +1265,43 @@ function GoTopChartComponent () {
     return time
   }
 
+  /**
+   * @description 画图元件数据处理：从外部获取的绘图对象数据要再进行一次格式化，转换成客户端便于渲染的数据格式
+   */
+  this.ProcessDrawPictureEleData = function () {
+    for (let i in this.Options.drawEle) {
+      const type = this.Options.drawEle[i].type
+      const drawEleDatas = this.Options.drawEle[i].datas[this.Period]
+      for (let datetime in drawEleDatas) {
+        // 创建绘图元件对象
+        var obj
+        switch (type) {
+          case "signals":
+            obj = new SignalsElement()
+            obj.IsSelect = false
+            obj.Name = 'signals'
+            obj.IsFinished = true
+            obj.ExtensionObj.type = drawEleDatas[datetime].type
+            obj.Position.push([parseInt([datetime]), drawEleDatas[datetime].value])
+            this.DrawPictureToolList.push(obj)
+        }
+        // 判断元件在哪个图表，set options
+        for (let c in this.ChartFramePaintingList) {
+          if (this.ChartFramePaintingList[c].Name == drawEleDatas[datetime].location) {
+            obj.Option = this.ChartFramePaintingList[c].Option
+            obj.Canvas = this.OptCanvas
+            // obj.Create(this.OptCanvas, this.ChartFramePaintingList[c].Option)
+          }
+        }
+        // 保存文件数据到 drawPictureToolList
+        this.DrawPictureToolList.push(obj)
+      }
+    }
+    // 保存saveIndex
+    this.DrawPictureSaveIndex = this.DrawPictureToolList.length - 1
+    console.log("drawPictureTooList:", this.DrawPictureToolList)
+  }
+
 
   this.UpdateTitleCurValue = function (kIndex) {
     for (let i in this.ChartFramePaintingList) {
@@ -1267,7 +1323,6 @@ function GoTopChartComponent () {
             for (let k in this.ChartFramePaintingList[i].IndicatorList[j].key) {
               const key = this.ChartFramePaintingList[i].IndicatorList[j].key[k]
               const datetime = ChartData.getInstance().Data[kIndex].datetime
-              console.log('idata', datetime)
               value[key] = this.IndicatorDataList[j].Data[key][datetime] ? this.IndicatorDataList[j].Data[key][datetime].value : ''
             }
             curValue[this.ChartFramePaintingList[i].IndicatorList[j].name] = JSON.parse(JSON.stringify(value))
@@ -1346,7 +1401,6 @@ function GoTopChartComponent () {
       kLine.Create(self.Canvas, self.OptCanvas, self.ChartFramePaintingList[i].Option, ChartData.getInstance().Data)
 
       // 主图指标
-      console.log(self.ChartFramePaintingList[i].IndicatorList)
       for (let j in self.ChartFramePaintingList[i].IndicatorList) {
         var option = self.ChartFramePaintingList[i].IndicatorList[j]
         var chartOption = self.ChartFramePaintingList[i].Option
@@ -2009,6 +2063,7 @@ function MACD () {
   }
 }
 
+
 // 自定义指标
 function IndicatorCustom () {
   this.Name
@@ -2054,23 +2109,48 @@ function IndicatorCustom () {
     this.Canvas.beginPath()
     this.Canvas.lineWidth = this.Styles[plot].lineWidth
     this.Canvas.strokeStyle = this.Styles[plot].color
-    var firstMove = true
     var iData = this.Data[plot]
     var kLineData = ChartData.getInstance().Data
+    const _t = this
+
     for (var l in kLineData) {
       if (iData[kLineData[l].datetime]) {
-        const x = (ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0] + ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1]) * (parseInt(l) + 1) - ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0] / 2 - ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1] + this.ChartOption.position.left + ChartSize.getInstance().GetLeft()
-        const y = this.ChartOption.height - ChartSize.getInstance().GetExtraHeight() - (iData[kLineData[l].datetime].value - this.ChartOption['yAxis'].Min) * this.ChartOption['yAxis'].unitPricePx + ChartSize.getInstance().GetTop() + ChartSize.getInstance().GetTitleHeight() + this.ChartOption.position.top
-        if (firstMove) {
-          this.Canvas.moveTo(x, y)
-          firstMove = false
-        } else {
-          this.Canvas.lineTo(x, y)
+        let endIndex = null
+        for (let c = l; c < kLineData.length; c++) {
+          if (iData[kLineData[l].datetime].end_time == kLineData[c].datetime) {
+            endIndex = c
+            break
+          }
         }
+        if (endIndex == null) continue
+        calPointAndDraw(endIndex)
       }
     }
-    this.Canvas.stroke()
-    this.Canvas.closePath()
+
+    function calPointAndDraw (endIndex) {
+      let value1 = 0
+      let value2 = 0
+      if (iData[kLineData[l].datetime].type == 'up') {
+        value1 = iData[kLineData[l].datetime].low
+        value2 = iData[kLineData[l].datetime].high
+      } else {
+        value1 = iData[kLineData[l].datetime].high
+        value2 = iData[kLineData[l].datetime].low
+      }
+      const startX = (ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0] + ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1]) * (parseInt(l) + 1) - ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0] / 2 - ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1] + _t.ChartOption.position.left + ChartSize.getInstance().GetLeft()
+      const startY = _t.ChartOption.height - ChartSize.getInstance().GetExtraHeight() - (value1 - _t.ChartOption['yAxis'].Min) * _t.ChartOption['yAxis'].unitPricePx + ChartSize.getInstance().GetTop() + ChartSize.getInstance().GetTitleHeight() + _t.ChartOption.position.top
+      const endX = (ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0] + ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1]) * (parseInt(endIndex) + 1) - ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0] / 2 - ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1] + _t.ChartOption.position.left + ChartSize.getInstance().GetLeft()
+      const endY = _t.ChartOption.height - ChartSize.getInstance().GetExtraHeight() - (value2 - _t.ChartOption['yAxis'].Min) * _t.ChartOption['yAxis'].unitPricePx + ChartSize.getInstance().GetTop() + ChartSize.getInstance().GetTitleHeight() + _t.ChartOption.position.top
+      drawLine(startX, startY, endX, endY)
+    }
+
+    function drawLine (x1, y1, x2, y2) {
+      _t.Canvas.beginPath()
+      _t.Canvas.moveTo(x1, y1)
+      _t.Canvas.lineTo(x2, y2)
+      _t.Canvas.stroke()
+      _t.Canvas.closePath()
+    }
   }
 
   this.RectShap = function (plot) {
@@ -2079,7 +2159,6 @@ function IndicatorCustom () {
     this.Canvas.fillStyle = this.Styles[plot].color
     for (var r in kLineData) {
       if (iData[kLineData[r].datetime]) {
-        console.log('rect:find datetime')
         this.Canvas.beginPath()
         const startIndex = r
         let endIndex = null
@@ -2090,7 +2169,6 @@ function IndicatorCustom () {
           }
         }
         if (endIndex == null) continue
-        console.log('rect:', startIndex, endIndex)
         const startX = (ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0] + ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1]) * (parseInt(startIndex) + 1) - ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0] / 2 - ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1] + this.ChartOption.position.left + ChartSize.getInstance().GetLeft()
         const startY = this.ChartOption.height - ChartSize.getInstance().GetExtraHeight() - (iData[kLineData[r].datetime]['high'] - this.ChartOption['yAxis'].Min) * this.ChartOption['yAxis'].unitPricePx + ChartSize.getInstance().GetTop() + ChartSize.getInstance().GetTitleHeight() + this.ChartOption.position.top
         const endX = (ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0] + ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1]) * (parseInt(endIndex) + 1) - ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0] / 2 - ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1] + this.ChartOption.position.left + ChartSize.getInstance().GetLeft()
@@ -2224,6 +2302,8 @@ function LeftToolContainer () {
     { id: 'cursor-tool', divClass: "draw-tool-item", divStyle: 'margin-top:10px', spanClass: 'iconfont icon-icongb', spanStyle: 'font-size: 30px;' },
     { id: 'line-tool', divClass: "draw-tool-item", divStyle: '', spanClass: 'iconfont icon-xianduan1', spanStyle: 'font-size: 30px;' },
     { id: 'rect-tool', divClass: "draw-tool-item", divStyle: '', spanClass: 'iconfont icon-juxing', spanStyle: 'font-size: 30px;' },
+    { id: 'sell-tool', divClass: "draw-tool-item", divStyle: '', spanClass: 'iconfont icon-sell', spanStyle: 'font-size: 30px;' },
+    { id: 'buy-tool', divClass: "draw-tool-item", divStyle: '', spanClass: 'iconfont icon-buy', spanStyle: 'font-size: 30px;' }
   ]
 
   this.Height
@@ -2269,6 +2349,8 @@ function ChartDrawPicture () {
   this.Position = new Array()
   this.PointCount
 
+  this.ExtensionObj = {}
+
   this.Color
   this.IsFinished = false
   this.IsSelect = false
@@ -2281,11 +2363,10 @@ function ChartDrawPicture () {
   }
 
   this.SetPoint = function (x, y) {
-    if (this.IsFinished) return
-    var leftDatasIndex = ChartData.getInstance().DataOffSet + 1 - ChartSize.getInstance().ScreenKNum()
-    var index = Math.ceil((x - ChartSize.getInstance().GetLeft()) / (ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1] + ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0])) + leftDatasIndex - 1
+    const kLineData = ChartData.getInstance().Data
+    var index = Math.ceil((x - ChartSize.getInstance().GetLeft()) / (ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1] + ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0])) - 1
     var price = (((this.Option['height'] - ChartSize.getInstance().GetExtraHeight() - (y - this.Option['position']['top'] - ChartSize.getInstance().GetTop() - ChartSize.getInstance().GetTitleHeight())) / this.Option['yAxis'].unitPricePx) + this.Option['yAxis'].Min)
-    var item = [index, price]
+    var item = [kLineData[index].datetime, price]
     this.Position.push(item)
   }
 
@@ -2296,18 +2377,32 @@ function ChartDrawPicture () {
    * @param {move veri px} yStep 
    */
   this.UpdatePoint = function (i, xStep, yStep) {
+    const kLineData = ChartData.getInstance().Data
     var y = this.Option.height - ChartSize.getInstance().GetExtraHeight() - (this.Position[i][1] - this.Option['yAxis'].Min) * this.Option['yAxis'].unitPricePx + ChartSize.getInstance().GetTop() + ChartSize.getInstance().GetTitleHeight() + this.Option.position.top
     y += yStep
     this.Position[i][1] = ((((this.Option['height'] - ChartSize.getInstance().GetExtraHeight()) - (y - this.Option['position']['top'] - ChartSize.getInstance().GetTop() - ChartSize.getInstance().GetTitleHeight())) / this.Option['yAxis'].unitPricePx) + this.Option['yAxis'].Min)
-    this.Position[i][0] += xStep
+    for (let k in kLineData) {
+      if (this.Position[i][0] == kLineData[k].datetime) {
+        this.Position[i][0] = kLineData[parseInt(k) + xStep].datetime
+        break;
+      }
+    }
   }
 
   this.Draw = function () { }
 
   this.DrawPoint = function () {
+    const kLineData = ChartData.getInstance().Data
     if (this.Position.length > 0 && (this.IsSelect || this.IsHover)) {
       for (var i in this.Position) {
-        var x = (ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0] + ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1]) * (this.Position[i][0] - (ChartData.getInstance().DataOffSet + 1 - ChartSize.getInstance().ScreenKNum()) + 1) - ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0] / 2 - ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1] + this.Option.position.left + ChartSize.getInstance().GetLeft()
+        var index = 0
+        for (let k in kLineData) {
+          if (this.Position[i][0] == kLineData[k].datetime) {
+            index = parseInt(k)
+            break;
+          }
+        }
+        var x = (ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0] + ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1]) * (index + 1) - ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0] / 2 - ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1] + this.Option.position.left + ChartSize.getInstance().GetLeft()
         var y = this.Option.height - ChartSize.getInstance().GetExtraHeight() - (this.Position[i][1] - this.Option['yAxis'].Min) * this.Option['yAxis'].unitPricePx + ChartSize.getInstance().GetTop() + ChartSize.getInstance().GetTitleHeight() + this.Option.position.top
 
         this.Canvas.beginPath();
@@ -2333,25 +2428,47 @@ function ChartDrawPicture () {
       return this.IsPointInLinePath(x, y)
     } else if (this.Name === 'rect') {
       return this.IsPointInRectPath(x, y)
+    } else if (this.Name === 'signals') {
+      return this.IsPointInArcPath(x, y)
     }
   }
 
   this.IsPointInLinePath = function (x, y) {
     if (!this.Option) return -1
     if (this.Position.length < this.PointCount) return -1
-
-    var leftDatasIndex = ChartData.getInstance().DataOffSet + 1 - ChartSize.getInstance().ScreenKNum()
+    const kLineData = ChartData.getInstance().Data
     for (let i in this.Position) {
+      var index = null
+      for (let k in kLineData) {
+        if (this.Position[i][0] == kLineData[k].datetime) {
+          index = parseInt(k)
+          break;
+        }
+      }
       this.Canvas.beginPath();
-      var ex = (ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0] + ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1]) * (this.Position[i][0] - leftDatasIndex + 1) - ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0] / 2 - ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1] + this.Option.position.left + ChartSize.getInstance().GetLeft()
+      var ex = (ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0] + ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1]) * (index + 1) - ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0] / 2 - ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1] + this.Option.position.left + ChartSize.getInstance().GetLeft()
       var ey = this.Option.height - ChartSize.getInstance().GetExtraHeight() - (this.Position[i][1] - this.Option['yAxis'].Min) * this.Option['yAxis'].unitPricePx + ChartSize.getInstance().GetTop() + ChartSize.getInstance().GetTitleHeight() + this.Option.position.top
       this.Canvas.arc(ex, ey, 5, 0, 360);
       if (this.Canvas.isPointInPath(x, y)) return i;
     }
 
-    var x1 = (ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0] + ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1]) * (this.Position[0][0] - leftDatasIndex + 1) - ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0] / 2 - ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1] + this.Option.position.left + ChartSize.getInstance().GetLeft()
+    var x1_index = null
+    for (let k_x1_index in kLineData) {
+      if (this.Position[0][0] == kLineData[k_x1_index].datetime) {
+        x1_index = parseInt(k_x1_index)
+        break;
+      }
+    }
+    var x2_index = null
+    for (let k_x2_index in kLineData) {
+      if (this.Position[1][0] == kLineData[k_x2_index].datetime) {
+        x2_index = parseInt(k_x2_index)
+        break;
+      }
+    }
+    var x1 = (ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0] + ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1]) * (x1_index + 1) - ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0] / 2 - ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1] + this.Option.position.left + ChartSize.getInstance().GetLeft()
     var y1 = this.Option.height - ChartSize.getInstance().GetExtraHeight() - (this.Position[0][1] - this.Option['yAxis'].Min) * this.Option['yAxis'].unitPricePx + ChartSize.getInstance().GetTop() + ChartSize.getInstance().GetTitleHeight() + this.Option.position.top
-    var x2 = (ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0] + ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1]) * (this.Position[1][0] - leftDatasIndex + 1) - ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0] / 2 - ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1] + this.Option.position.left + ChartSize.getInstance().GetLeft()
+    var x2 = (ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0] + ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1]) * (x2_index + 1) - ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0] / 2 - ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1] + this.Option.position.left + ChartSize.getInstance().GetLeft()
     var y2 = this.Option.height - ChartSize.getInstance().GetExtraHeight() - (this.Position[1][1] - this.Option['yAxis'].Min) * this.Option['yAxis'].unitPricePx + ChartSize.getInstance().GetTop() + ChartSize.getInstance().GetTitleHeight() + this.Option.position.top
     this.Canvas.beginPath()
     if (x1 == x2) {
@@ -2375,18 +2492,38 @@ function ChartDrawPicture () {
   this.IsPointInRectPath = function (x, y) {
     if (!this.Option) return -1
     if (this.Position.length < this.PointCount) return -1
-
-    var leftDatasIndex = ChartData.getInstance().DataOffSet + 1 - ChartSize.getInstance().ScreenKNum()
+    const kLineData = ChartData.getInstance().Data
     for (let i in this.Position) {
+      var index = null
+      for (let k in kLineData) {
+        if (this.Position[i][0] == kLineData[k].datetime) {
+          index = parseInt(k)
+          break;
+        }
+      }
       this.Canvas.beginPath();
-      var ex = (ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0] + ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1]) * (this.Position[i][0] - leftDatasIndex + 1) - ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0] / 2 - ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1] + this.Option.position.left + ChartSize.getInstance().GetLeft()
+      var ex = (ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0] + ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1]) * (index + 1) - ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0] / 2 - ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1] + this.Option.position.left + ChartSize.getInstance().GetLeft()
       var ey = this.Option.height - ChartSize.getInstance().GetExtraHeight() - (this.Position[i][1] - this.Option['yAxis'].Min) * this.Option['yAxis'].unitPricePx + ChartSize.getInstance().GetTop() + ChartSize.getInstance().GetTitleHeight() + this.Option.position.top
       this.Canvas.arc(ex, ey, 5, 0, 360);
       if (this.Canvas.isPointInPath(x, y)) return i;
     }
-    var x1 = (ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0] + ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1]) * (this.Position[0][0] - leftDatasIndex + 1) - ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0] / 2 - ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1] + this.Option.position.left + ChartSize.getInstance().GetLeft()
+    var x1_index = null
+    for (let k_x1_index in kLineData) {
+      if (this.Position[0][0] == kLineData[k_x1_index].datetime) {
+        x1_index = parseInt(k_x1_index)
+        break;
+      }
+    }
+    var x2_index = null
+    for (let k_x2_index in kLineData) {
+      if (this.Position[1][0] == kLineData[k_x2_index].datetime) {
+        x2_index = parseInt(k_x2_index)
+        break;
+      }
+    }
+    var x1 = (ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0] + ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1]) * (x1_index + 1) - ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0] / 2 - ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1] + this.Option.position.left + ChartSize.getInstance().GetLeft()
     var y1 = this.Option.height - ChartSize.getInstance().GetExtraHeight() - (this.Position[0][1] - this.Option['yAxis'].Min) * this.Option['yAxis'].unitPricePx + ChartSize.getInstance().GetTop() + ChartSize.getInstance().GetTitleHeight() + this.Option.position.top
-    var x2 = (ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0] + ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1]) * (this.Position[1][0] - leftDatasIndex + 1) - ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0] / 2 - ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1] + this.Option.position.left + ChartSize.getInstance().GetLeft()
+    var x2 = (ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0] + ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1]) * (x2_index + 1) - ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0] / 2 - ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1] + this.Option.position.left + ChartSize.getInstance().GetLeft()
     var y2 = this.Option.height - ChartSize.getInstance().GetExtraHeight() - (this.Position[1][1] - this.Option['yAxis'].Min) * this.Option['yAxis'].unitPricePx + ChartSize.getInstance().GetTop() + ChartSize.getInstance().GetTitleHeight() + this.Option.position.top
     //是否在矩形边框上
     var linePoint = [{ X: x1, Y: y1 }, { X: x2, Y: y1 }];
@@ -2409,6 +2546,28 @@ function ChartDrawPicture () {
       return 100;
     }
     return -1;
+  }
+
+  this.IsPointInArcPath = function (x, y) {
+    if (!this.Option) return -1
+    if (this.Position.length < this.PointCount) return -1
+    const kLineData = ChartData.getInstance().Data
+    var index = null
+    for (let k in kLineData) {
+      if (this.Position[0][0] == kLineData[k].datetime) {
+        index = parseInt(k)
+        break;
+      }
+    }
+    if (!index) {
+      return -1
+    }
+    this.Canvas.beginPath();
+    var ex = (ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0] + ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1]) * (index + 1) - ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0] / 2 - ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1] + this.Option.position.left + ChartSize.getInstance().GetLeft()
+    var ey = this.Option.height - ChartSize.getInstance().GetExtraHeight() - (this.Position[0][1] - this.Option['yAxis'].Min) * this.Option['yAxis'].unitPricePx + ChartSize.getInstance().GetTop() + ChartSize.getInstance().GetTitleHeight() + this.Option.position.top
+    this.Canvas.arc(ex, ey, this.Radius, 0, 2 * Math.PI);
+    if (this.Canvas.isPointInPath(x, y)) return 0;
+    return -1
   }
 
   //点是否在线段上 水平线段
@@ -2436,6 +2595,59 @@ function ChartDrawPicture () {
   }
 }
 
+// Signals 画法
+function SignalsElement () {
+  this.newMethod = ChartDrawPicture
+  this.newMethod()
+  delete this.newMethod
+
+  this.PointCount = 1
+  this.Color = g_GoTopChartResource.signalColor
+  this.Radius = g_GoTopChartResource.signalRadius
+
+  this.Draw = function (x, y) {
+    var kLineData = ChartData.getInstance().Data
+    if (this.Position.length == 0) return
+
+    var centerX, centerY
+    var index = null
+    for (let k_index in kLineData) {
+      if (this.Position[0][0] == kLineData[k_index].datetime) {
+        index = parseInt(k_index)
+        break;
+      }
+    }
+    if (!index) return
+    centerX = (ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0] + ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1]) * (index + 1) - ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0] / 2 - ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1] + this.Option.position.left + ChartSize.getInstance().GetLeft()
+    centerY = this.Option.height - ChartSize.getInstance().GetExtraHeight() - (this.Position[0][1] - this.Option['yAxis'].Min) * this.Option['yAxis'].unitPricePx + ChartSize.getInstance().GetTop() + ChartSize.getInstance().GetTitleHeight() + this.Option.position.top
+
+    let signType = ""
+    if (this.ExtensionObj.type === 'buy') {
+      signType = '买'
+      this.Canvas.fillStyle = this.Color[0]
+    } else {
+      signType = '卖'
+      this.Canvas.fillStyle = this.Color[1]
+    }
+
+    this.ClipFrame()
+    this.Canvas.beginPath()
+    this.Canvas.setLineDash([0, 0])
+    this.Canvas.arc(centerX, centerY, this.Radius, 0, 2 * Math.PI)
+    this.Canvas.fill()
+
+    this.Canvas.font = '14px san-serif'
+    this.Canvas.fillStyle = '#fff'
+    this.Canvas.fillText(signType, (centerX - this.Radius / 2), centerY + this.Radius / 2.8)
+    this.Canvas.fillText(this.Position[0][1], (centerX - this.Radius / 2), centerY + this.Radius + 15)
+    this.Canvas.stroke()
+    this.Canvas.closePath()
+
+
+    this.Canvas.restore()
+  }
+}
+
 // 线段画法
 function LineElement () {
   this.newMethod = ChartDrawPicture
@@ -2446,21 +2658,41 @@ function LineElement () {
   this.Color = g_GoTopChartResource.LineColor[0]
 
   this.Draw = function (x, y) {
+    var kLineData = ChartData.getInstance().Data
     if (this.Position.length == 0) return
     var startX, startY, endX, endY
-    var leftDatasIndex = ChartData.getInstance().DataOffSet + 1 - ChartSize.getInstance().ScreenKNum()
-    startX = (ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0] + ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1]) * (this.Position[0][0] - leftDatasIndex + 1) - ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0] / 2 - ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1] + this.Option.position.left + ChartSize.getInstance().GetLeft()
+    var x1_index = null
+    for (let k_x1_index in kLineData) {
+      if (this.Position[0][0] == kLineData[k_x1_index].datetime) {
+        x1_index = parseInt(k_x1_index)
+        break;
+      }
+    }
+    if (!x1_index) {
+      return
+    }
+    startX = (ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0] + ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1]) * (x1_index + 1) - ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0] / 2 - ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1] + this.Option.position.left + ChartSize.getInstance().GetLeft()
     startY = this.Option.height - ChartSize.getInstance().GetExtraHeight() - (this.Position[0][1] - this.Option['yAxis'].Min) * this.Option['yAxis'].unitPricePx + ChartSize.getInstance().GetTop() + ChartSize.getInstance().GetTitleHeight() + this.Option.position.top
     if (this.Position.length == this.PointCount) {
-      endX = (ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0] + ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1]) * (this.Position[1][0] - leftDatasIndex + 1) - ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0] / 2 - ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1] + this.Option.position.left + ChartSize.getInstance().GetLeft()
+      var x2_index = null
+      for (let k_x2_index in kLineData) {
+        if (this.Position[1][0] == kLineData[k_x2_index].datetime) {
+          x2_index = parseInt(k_x2_index)
+          break;
+        }
+      }
+      if (!x2_index) {
+        return
+      }
+      endX = (ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0] + ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1]) * (x2_index + 1) - ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0] / 2 - ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1] + this.Option.position.left + ChartSize.getInstance().GetLeft()
       endY = this.Option.height - ChartSize.getInstance().GetExtraHeight() - (this.Position[1][1] - this.Option['yAxis'].Min) * this.Option['yAxis'].unitPricePx + ChartSize.getInstance().GetTop() + ChartSize.getInstance().GetTitleHeight() + this.Option.position.top
     } else {
-      var index = Math.ceil((x - ChartSize.getInstance().GetLeft()) / (ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1] + ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0])) + leftDatasIndex - 1
-      endX = (ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0] + ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1]) * (index - leftDatasIndex + 1) - ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0] / 2 - ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1] + this.Option.position.left + ChartSize.getInstance().GetLeft()
+      var index = Math.ceil((x - ChartSize.getInstance().GetLeft()) / (ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1] + ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0])) - 1
+      endX = (ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0] + ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1]) * (index + 1) - ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0] / 2 - ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1] + this.Option.position.left + ChartSize.getInstance().GetLeft()
       endY = y
     }
-    this.ClipFrame()
 
+    this.ClipFrame()
     this.Canvas.beginPath()
     this.Canvas.setLineDash([0, 0])
     this.Canvas.strokeStyle = this.Color
@@ -2485,16 +2717,36 @@ function RectElement () {
 
   this.Draw = function (x, y) {
     if (this.Position.length == 0) return
+    const kLineData = ChartData.getInstance().Data
     var startX, startY, endX, endY
-    var leftDatasIndex = ChartData.getInstance().DataOffSet + 1 - ChartSize.getInstance().ScreenKNum()
-    startX = (ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0] + ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1]) * (this.Position[0][0] - leftDatasIndex + 1) - ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0] / 2 - ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1] + this.Option.position.left + ChartSize.getInstance().GetLeft()
+    var x1_index = null
+    for (let k_x1_index in kLineData) {
+      if (this.Position[0][0] == kLineData[k_x1_index].datetime) {
+        x1_index = parseInt(k_x1_index)
+        break;
+      }
+    }
+    if (!x1_index) {
+      return
+    }
+    startX = (ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0] + ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1]) * (x1_index + 1) - ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0] / 2 - ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1] + this.Option.position.left + ChartSize.getInstance().GetLeft()
     startY = this.Option.height - ChartSize.getInstance().GetExtraHeight() - (this.Position[0][1] - this.Option['yAxis'].Min) * this.Option['yAxis'].unitPricePx + ChartSize.getInstance().GetTop() + ChartSize.getInstance().GetTitleHeight() + this.Option.position.top
     if (this.Position.length == this.PointCount) {
-      endX = (ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0] + ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1]) * (this.Position[1][0] - leftDatasIndex + 1) - ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0] / 2 - ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1] + this.Option.position.left + ChartSize.getInstance().GetLeft()
+      var x2_index = null
+      for (let k_x2_index in kLineData) {
+        if (this.Position[1][0] == kLineData[k_x2_index].datetime) {
+          x2_index = parseInt(k_x2_index)
+          break;
+        }
+      }
+      if (!x2_index) {
+        return
+      }
+      endX = (ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0] + ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1]) * (x2_index + 1) - ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0] / 2 - ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1] + this.Option.position.left + ChartSize.getInstance().GetLeft()
       endY = this.Option.height - ChartSize.getInstance().GetExtraHeight() - (this.Position[1][1] - this.Option['yAxis'].Min) * this.Option['yAxis'].unitPricePx + ChartSize.getInstance().GetTop() + ChartSize.getInstance().GetTitleHeight() + this.Option.position.top
     } else {
-      var index = Math.ceil((x - ChartSize.getInstance().GetLeft()) / (ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1] + ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0])) + leftDatasIndex - 1
-      endX = (ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0] + ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1]) * (index - leftDatasIndex + 1) - ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0] / 2 - ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1] + this.Option.position.left + ChartSize.getInstance().GetLeft()
+      var index = Math.ceil((x - ChartSize.getInstance().GetLeft()) / (ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1] + ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0])) - 1
+      endX = (ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0] + ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1]) * (index + 1) - ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][0] / 2 - ZOOM_SEED[ChartSize.getInstance().CurScaleIndex][1] + this.Option.position.left + ChartSize.getInstance().GetLeft()
       endY = y
     }
     this.ClipFrame()
@@ -2943,6 +3195,17 @@ function IndicatorData () {
 
 }
 
+function DrawPictureData () {
+  this.Name
+  this.RequestType
+
+  this.Data
+
+  this.Create = function (name, data) {
+
+  }
+}
+
 ////////////////////////////////////////////
 // 
 //             全局图表配置
@@ -2962,7 +3225,9 @@ function GoTopChartResource () {
   this.DownColor = "#ef5350"
   this.BorderWidth = [2, 1]
   this.SettingsList
-  this.LineColor = ['#ffc400']
+  this.LineColor = ['#ffc400'],
+    this.signalColor = ['#26a69a', '#ef5350']
+  this.signalRadius = 15
 
   this.Domain = "https://api.binance.com"
 }
