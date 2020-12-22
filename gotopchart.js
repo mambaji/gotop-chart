@@ -96,6 +96,9 @@ function GoTopChart (element) {
         break;
       case 'next-signal-btn':
         break;
+      case 'save-btn':
+        self.Chart.SaveDrawPicture()
+        break;
     }
   })
 }
@@ -120,7 +123,8 @@ function GoTopChartComponent () {
   this.ChartFramePaintingList = new Array()     // 存放图表框架绘制对象
   this.FrameList = new Array()                  // 存放图表框架
   this.DrawPictureToolList = new Array()            // 存放画图对象
-  this.DrawPictureSaveIndex = 0                     // drawPictureToolList中已经保存的数据下标
+  this.DrawPictureToolDeleteList = new Array()      // 存放删除的画图元素
+  this.DrawPictureSaveIndex = null                     // drawPictureToolList中已经保存的数据下标
 
   this.CrossCursor = new CrossCursor()          // 光标
 
@@ -171,6 +175,10 @@ function GoTopChartComponent () {
     switch (type) {
       case 'delete':
         if (self.DrawPictureIndex.CurSelectIndex != null) {
+          if (self.DrawPictureSaveIndex >= self.DrawPictureIndex.CurSelectIndex) {
+            // 删除掉持久化数据中的绘图元素，则需将删除的对象保存起来，等待save的时候再一起做处理
+            self.DrawPictureToolDeleteList.push(self.DrawPictureToolList[self.DrawPictureIndex.CurSelectIndex])
+          }
           self.DrawPictureToolList.splice(self.DrawPictureIndex.CurSelectIndex, 1)
           self.DrawPictureIndex.CurSelectIndex = null
           self.DrawPictureIndex.CurHoverIndex = null
@@ -1269,10 +1277,13 @@ function GoTopChartComponent () {
    * @description 画图元件数据处理：从外部获取的绘图对象数据要再进行一次格式化，转换成客户端便于渲染的数据格式
    */
   this.ProcessDrawPictureEleData = function () {
+    // $.getJSON("./datas/drawEleDatas.json", res => {
+    //   console.log(res)
+    // })
     for (let i in this.Options.drawEle) {
       const type = this.Options.drawEle[i].type
-      const drawEleDatas = this.Options.drawEle[i].datas[this.Period]
-      for (let datetime in drawEleDatas) {
+      const drawEleDatas = drawEleDatasObj[this.Options.drawEle[i].type][this.Period]
+      for (let i in drawEleDatas) {
         // 创建绘图元件对象
         var obj
         switch (type) {
@@ -1281,16 +1292,31 @@ function GoTopChartComponent () {
             obj.IsSelect = false
             obj.Name = 'signals'
             obj.IsFinished = true
-            obj.ExtensionObj.type = drawEleDatas[datetime].type
-            obj.Position.push([parseInt([datetime]), drawEleDatas[datetime].value])
-            this.DrawPictureToolList.push(obj)
+            obj.ExtensionObj.type = drawEleDatas[i].type
+            obj.Position.push([parseInt(drawEleDatas[i].begin_time), drawEleDatas[i].value])
+            break;
+          case "line":
+            obj = new LineElement()
+            obj.Name = 'line'
+            obj.IsSelect = false
+            obj.IsFinished = true
+            obj.Position.push([parseInt(drawEleDatas[i].begin_time), drawEleDatas[i].value1])
+            obj.Position.push([parseInt(drawEleDatas[i].end_time), drawEleDatas[i].value2])
+            break;
+          case "rect":
+            obj = new RectElement()
+            obj.Name = 'rect'
+            obj.IsSelect = false
+            obj.IsFinished = true
+            obj.Position.push([parseInt(drawEleDatas[i].begin_time), drawEleDatas[i].value1])
+            obj.Position.push([parseInt(drawEleDatas[i].end_time), drawEleDatas[i].value2])
+            break;
         }
         // 判断元件在哪个图表，set options
         for (let c in this.ChartFramePaintingList) {
-          if (this.ChartFramePaintingList[c].Name == drawEleDatas[datetime].location) {
+          if (this.ChartFramePaintingList[c].Name == drawEleDatas[i].location) {
             obj.Option = this.ChartFramePaintingList[c].Option
             obj.Canvas = this.OptCanvas
-            // obj.Create(this.OptCanvas, this.ChartFramePaintingList[c].Option)
           }
         }
         // 保存文件数据到 drawPictureToolList
@@ -1299,7 +1325,48 @@ function GoTopChartComponent () {
     }
     // 保存saveIndex
     this.DrawPictureSaveIndex = this.DrawPictureToolList.length - 1
-    console.log("drawPictureTooList:", this.DrawPictureToolList)
+  }
+
+  this.SaveDrawPicture = function () {
+    let signals = []
+    let rect = []
+    let line = []
+    for (let i in this.DrawPictureToolList) {
+      switch (this.DrawPictureToolList[i].Name) {
+        case 'line':
+          line.push({
+            begin_time: this.DrawPictureToolList[i].Position[0][0],
+            end_time: this.DrawPictureToolList[i].Position[1][0],
+            value1: this.DrawPictureToolList[i].Position[0][1],
+            value2: this.DrawPictureToolList[i].Position[1][1]
+          })
+          break;
+        case 'rect':
+          rect.push({
+            begin_time: this.DrawPictureToolList[i].Position[0][0],
+            end_time: this.DrawPictureToolList[i].Position[1][0],
+            value1: this.DrawPictureToolList[i].Position[0][1],
+            value2: this.DrawPictureToolList[i].Position[1][1]
+          })
+          break;
+        case 'signals':
+          signals.push({
+            begin_time: this.DrawPictureToolList[i].Position[0][0],
+            value: this.DrawPictureToolList[i].Position[0][1],
+            type: this.DrawPictureToolList[i].ExtensionObj.type
+          })
+          break;
+      }
+    }
+    const oData = {
+      signals: {},
+      rect: {},
+      line: {}
+    }
+    oData.signals[this.Period] = signals
+    oData.rect[this.Period] = rect
+    oData.line[this.Period] = line
+    saveJsonToFile(oData, 'drawEleDatas')
   }
 
 
@@ -2253,7 +2320,8 @@ function TopToolContainer () {
     { id: 'pre-signal-btn', divClass: 'item', divStyle: '', spanClass: 'iconfont icon-xiayiye1', spanStyle: 'margin-right:2px;', text: '信 号' },
     { id: 'next-signal-btn', divClass: 'item', divStyle: '', spanClass: 'iconfont icon-xiayiye', spanStyle: 'margin-right:2px;', text: '' },
     { id: null, divClass: '', divStyle: 'flex-grow:1', spanClass: '', spanStyle: '', text: '' },
-    { id: 'settings-btn', divClass: 'item', divStyle: 'border-left:1.5px solid #353d5a', spanClass: 'iconfont icon-shezhi', spanStyle: '', text: '' },
+    { id: 'save-btn', divClass: 'item', divStyle: 'border-left:1.5px solid #353d5a', spanClass: 'iconfont icon-save', spanStyle: '', text: '保存' },
+    { id: 'settings-btn', divClass: 'item', divStyle: '', spanClass: 'iconfont icon-shezhi', spanStyle: '', text: '' },
     { id: 'scale-big-btn', divClass: 'item', divStyle: '', spanClass: 'iconfont icon-quanping', spanStyle: '', text: '' },
     { id: 'shot-btn', divClass: 'item', divStyle: '', spanClass: 'iconfont icon-kuaizhao', spanStyle: '', text: '' },
   ]
@@ -3270,6 +3338,13 @@ var ZOOM_SEED =
 function GetDevicePixelRatio () {
   if (typeof (window) == 'undefined') return 1;
   return window.devicePixelRatio || 1;
+}
+
+function saveJsonToFile (oData, fileName) {
+  var blob = new Blob([JSON.stringify(oData)], {
+    type: "text/plain;charset=utf-8"
+  });
+  saveAs(blob, fileName + '.json');
 }
 
 function Guid () {
